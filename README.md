@@ -75,6 +75,7 @@ Follow these steps to set up the project locally and deploy it to AWS.
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/your-username/serverless-gemini-agent.git](https://github.com/your-username/serverless-gemini-agent.git)
+git clone [https://github.com/ReneDva/serverless-gemini-agent.git](https://github.com/your-username/serverless-gemini-agent.git)
 
 cd serverless-gemini-agent
+
