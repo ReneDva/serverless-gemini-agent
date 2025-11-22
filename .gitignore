@@ -1,0 +1,7 @@
+# .gitignore content
+
+# Ignore all dependencies packages inside venv
+venv/
+
+# Secret files
+.env
