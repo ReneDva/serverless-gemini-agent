@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Gemini Voice Agent - S3 trigger + Presign API
+
+Parameters:
+  InputBucketName:
+    Type: String
+    Description: S3 bucket for uploads and outputs
+  GeminiApiKey:
+    Type: String
+    Description: Google Gemini API key
+  OutputPrefix:
+    Type: String
+    Default: summaries/
+    Description: Prefix for summary outputs in S3
+  TranscribeRegion:
+    Type: String
+    Default: us-east-1
+  TranscribeLanguage:
+    Type: String
+    Default: en-US
+  GeminiModel:
+    Type: String
+    Default: gemini-1.5-pro
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 120
+    MemorySize: 1024
+    Tracing: Active
+    Environment:
+      Variables:
+        INPUT_BUCKET_NAME: !Ref InputBucketName
+        GEMINI_API_KEY: !Ref GeminiApiKey
+        OUTPUT_PREFIX: !Ref OutputPrefix
+        TRANSCRIBE_REGION: !Ref TranscribeRegion
+        TRANSCRIBE_LANGUAGE: !Ref TranscribeLanguage
+        GEMINI_MODEL: !Ref GeminiModel
+
+Resources:
+  # S3 bucket (optional: if you want SAM to create it)
+  InputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref InputBucketName
+      NotificationConfiguration:
+        # S3 notifications are wired via SAM Events below; this block can stay empty
+        # or be omitted. SAM will attach the event permission.
+      AccessControl: Private
+
+  VoiceAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: backend/handler.agent_handler
+      CodeUri: .
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref InputBucketName
+        - S3WritePolicy:
+            BucketName: !Ref InputBucketName
+        - Statement:
+            # Allow Transcribe job operations
+            - Effect: Allow
+              Action:
+                - "transcribe:StartTranscriptionJob"
+                - "transcribe:GetTranscriptionJob"
+              Resource: "*"
+      Events:
+        S3UploadTrigger:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .mp3
+                  - Name: suffix
+                    Value: .wav
+                  - Name: suffix
+                    Value: .m4a
+                  - Name: suffix
+                    Value: .flac
+                  - Name: suffix
+                    Value: .ogg
+
+  PresignFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: backend/presign_handler.presign_handler
+      CodeUri: .
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref InputBucketName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            Path: /presign
+            Method: post
+
+Outputs:
+  UploadApiUrl:
+    Description: Endpoint to request a presigned URL
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/presign"
+  BucketName:
+    Description: S3 bucket name
+    Value: !Ref InputBucketName

@@ -1,59 +1,47 @@
-// *** CRITICAL: REPLACE WITH YOUR ACTUAL LAMBDA FUNCTION URL ***
-const PRE_SIGN_URL_GENERATOR_URL = "https://<your-presign-lambda-id>.lambda-url.eu-north-1.on.aws";
+// This URL is printed by `sam deploy` as Output: UploadApiUrl
+const PRESIGN_ENDPOINT = "https://<your-api-id>.execute-api.<region>.amazonaws.com/presign";
 
 const fileInput = document.getElementById('file-upload');
+const uploadBtn = document.getElementById('upload-btn');
 const statusMessage = document.getElementById('status-message');
 
 function updateStatus(message, isError = false) {
-    statusMessage.textContent = message;
-    statusMessage.style.color = isError ? 'red' : 'green';
+  statusMessage.textContent = message;
+  statusMessage.style.color = isError ? 'red' : 'green';
 }
 
-async function uploadAudio() {
-    const file = fileInput.files[0];
-    if (!file) {
-        updateStatus("Please select an audio file.", true);
-        return;
-    }
+uploadBtn.addEventListener('click', async () => {
+  const file = fileInput.files[0];
+  if (!file) {
+    updateStatus("Please select an audio file.", true);
+    return;
+  }
 
+  try {
     updateStatus(`1/2: Requesting pre-signed URL for ${file.name}...`);
-
-    // --- שלב 1: קבלת הלינק המאובטח מה-Lambda Function URL ---
-    try {
-        const response = await fetch(PRE_SIGN_URL_GENERATOR_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ fileName: file.name })
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.json().catch(() => ({error: "Unknown error"}));
-            throw new Error(`Failed to get pre-signed URL. Status: ${response.status}. Error: ${errorBody.error}`);
-        }
-
-        const data = await response.json();
-        const uploadUrl = data.uploadUrl;
-
-        updateStatus(`2/2: URL received. Uploading file directly to S3...`);
-
-        // --- שלב 2: העלאה ישירה ל-S3 באמצעות הלינק ---
-        const uploadResponse = await fetch(uploadUrl, {
-            method: 'PUT',
-            // חובה: ה-Content-Type חייב להתאים לזה שצוין כאשר נוצר ה-Pre-Signed URL (אם צוין)
-            headers: { 'Content-Type': file.type || 'application/octet-stream' },
-            body: file
-        });
-
-        if (uploadResponse.ok) {
-            updateStatus("Upload successful! Processing has started by the Gemini Agent.");
-        } else {
-            updateStatus(`S3 upload failed. Status: ${uploadResponse.status}`, true);
-        }
-
-    } catch (error) {
-        console.error("Upload process error:", error);
-        updateStatus(`Upload failed: ${error.message}`, true);
+    const resp = await fetch(PRESIGN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName: file.name })
+    });
+    if (!resp.ok) {
+      const errorBody = await resp.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(`Failed to get pre-signed URL: ${resp.status} ${errorBody.error}`);
     }
-}
+    const data = await resp.json();
+    const uploadUrl = data.uploadUrl;
+
+    updateStatus("2/2: Uploading file directly to S3...");
+    const putResp = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file
+    });
+    if (!putResp.ok) throw new Error(`S3 upload failed: ${putResp.status}`);
+
+    updateStatus("Upload successful! Processing will start automatically.");
+  } catch (err) {
+    console.error(err);
+    updateStatus(`Upload failed: ${err.message}`, true);
+  }
+});
