@@ -16,6 +16,23 @@
     {
       "Effect": "Allow",
       "Action": [
+        "s3:CreateBucket",
+        "s3:PutBucketEncryption",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketLifecycleConfiguration",
+        "s3:PutPublicAccessBlock",
+        "s3:PutBucketPolicy",
+        "s3:PutObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::rene-gemini-sam-artifacts-dev",
+        "arn:aws:s3:::rene-gemini-sam-artifacts-dev/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
         "lambda:InvokeFunction",
         "lambda:ListFunctions"
       ],
