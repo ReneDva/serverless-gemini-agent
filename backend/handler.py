@@ -235,31 +235,3 @@ def agent_handler(event, context):
     except Exception as e:
         return {"statusCode": 500, "body": json.dumps(f"S3 write error: {str(e)}")}
 
-
-# --- Local Runner Block (Simulates an S3 Trigger) ---
-if __name__ == "__main__":
-
-    # Check if the bucket name is configured before running the local test
-    if not INPUT_BUCKET_NAME:
-        print("ERROR: Please set INPUT_BUCKET_NAME in your .env file before local testing.")
-    else:
-        # Create a test event simulating an audio file upload to the S3 bucket
-        test_event = {
-            "Records": [
-                {
-                    "eventSource": "aws:s3",
-                    "s3": {
-                        "bucket": {"name": INPUT_BUCKET_NAME},
-                        # Use a key that matches the expected file type, e.g., .m4a
-                        "object": {"key": "user_recording_123.m4a"}
-                    }
-                }
-            ]
-        }
-
-        print("\n--- Running local S3 Trigger Simulation (Transcribe Starter) ---")
-        result = agent_handler(event=test_event, context={})
-
-        print("\n--- SIMULATION RESULT ---")
-        print(result)
-        print("---------------------------\n")
