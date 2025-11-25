@@ -1,4 +1,6 @@
 # pip install -r requirements.txt
+#  python -m pip install  --upgrade -r .\backend\requirements.txt -t .\layer\python\lib\python3.14\site-packages
+#  Compress-Archive -Path .\layer\* -DestinationPath .\layer.zip -Force
 
 google-genai==1.47.0
 boto3==1.41.2

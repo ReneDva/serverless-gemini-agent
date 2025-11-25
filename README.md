@@ -68,9 +68,13 @@ Follow these steps to set up the project locally and deploy it to AWS.
 
 ### Prerequisites
 
-* **Python 3.9+** installed.
+### Prerequisites
+
+* **Python 3.14+** installed.
 * **AWS CLI** configured with appropriate permissions.
+* **AWS SAM CLI** installed and available on your PATH (recommended version 1.0+; verify with `sam --version`).
 * **Google AI Studio API Key** ([Get it here](https://aistudio.google.com/)).
+
 
 ### 1. Clone the Repository
 
@@ -78,4 +82,39 @@ Follow these steps to set up the project locally and deploy it to AWS.
 git clone [https://github.com/ReneDva/serverless-gemini-agent.git](https://github.com/your-username/serverless-gemini-agent.git)
 
 cd serverless-gemini-agent
+```
 
+### 2. Installing AWS SAM CLI
+Windows
+Preferred: winget (if available)
+```bash
+winget install --id Amazon.SAM-CLI -e
+```
+Or download and run the official MSI from the AWS SAM releases page:
+https://github.com/aws/aws-sam-cli/releases
+After install, open a new terminal and verify:
+```bash
+sam --version
+```
+### macOS
+Preferred: winget (if available)
+```bash
+winget install --id Amazon.SAM-CLI -e
+```
+Or download and run the official MSI from the AWS SAM releases page:
+https://github.com/aws/aws-sam-cli/releases
+After install, open a new terminal and verify:
+
+```bash
+sam --version
+```
+
+### Linux
+Use the official installer from AWS (see releases) or package manager if available.
+Example using pipx (not official installer but works for many setups):
+```bash
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+pipx install aws-sam-cli
+sam --version
+```

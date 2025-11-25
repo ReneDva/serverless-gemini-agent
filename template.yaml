@@ -34,10 +34,13 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: python3.12
+    # Set the runtime to Python 3.14 to match your environment
+    Runtime: python3.14
     Timeout: 120
     MemorySize: 1024
     Tracing: Active
+    Layers:
+      - !Ref ProjectDepsLayer
     Environment:
       Variables:
         INPUT_BUCKET_NAME: !Ref InputBucketName
@@ -49,6 +52,21 @@ Globals:
         # Provide GEMINI_API_KEY at deploy time (sam deploy --parameter-overrides) or via Secrets Manager.
 
 Resources:
+
+  ############################################################
+  # Layer resource that packages Python dependencies
+  # Place the local layer content under ./layer/ with the layout:
+  #   layer/python/lib/python3.14/site-packages/...
+  # Build commands are provided above to populate that folder.
+  ############################################################
+  ProjectDepsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: project-deps
+      Description: "Common python deps for Gemini agent (google-auth, google-genai, etc.)"
+      ContentUri: layer/
+      CompatibleRuntimes:
+        - python3.14
 
   ## Optional S3 bucket
   InputBucket:
@@ -70,6 +88,9 @@ Resources:
       Handler: backend/handler.agent_handler
       CodeUri: .
       Description: "S3-triggered Lambda: start Transcribe, read transcript, call Gemini, write summary to S3"
+      # Attach the shared dependencies layer
+      Layers:
+        - !Ref ProjectDepsLayer
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref InputBucketName
@@ -116,6 +137,9 @@ Resources:
       Description: "Generates pre-signed S3 PUT URLs for direct browser uploads"
       MemorySize: 128
       Timeout: 30
+      # Attach the same layer so presign handler can import shared libs if needed
+      Layers:
+        - !Ref ProjectDepsLayer
       Policies:
         - S3WritePolicy:
             BucketName: !Ref InputBucketName
@@ -142,6 +166,9 @@ Resources:
       Description: "Optional: separate function to start Transcribe jobs (alternative flow)"
       MemorySize: 128
       Timeout: 60
+      # Attach the shared dependencies layer
+      Layers:
+        - !Ref ProjectDepsLayer
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref InputBucketName
