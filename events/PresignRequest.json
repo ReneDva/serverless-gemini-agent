@@ -1,0 +1,6 @@
+{
+  "body": "{\"fileName\": \"user_recording_123.wav\"}",
+  "httpMethod": "POST",
+  "headers": { "Content-Type": "application/json" },
+  "requestContext": {}
+}
