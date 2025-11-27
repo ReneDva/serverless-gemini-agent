@@ -84,8 +84,7 @@ Resources:
       Handler: backend/handler.agent_handler
       CodeUri: .
       Description: "S3-triggered Lambda: start Transcribe, read transcript, call Gemini, write summary to S3"
-      Layers:
-        - !Ref ProjectDepsLayer
+
       Policies:
         # Use the parameter (string) for policies to avoid dependency on the bucket resource
         - S3ReadPolicy:
@@ -134,8 +133,7 @@ Resources:
       Description: "Generates pre-signed S3 PUT URLs for direct browser uploads"
       MemorySize: 128
       Timeout: 30
-      Layers:
-        - !Ref ProjectDepsLayer
+
       Policies:
         # Avoid resource dependency by using the parameter
         - S3WritePolicy:
@@ -163,8 +161,6 @@ Resources:
       Description: "Optional: separate function to start Transcribe jobs (alternative flow)"
       MemorySize: 128
       Timeout: 60
-      Layers:
-        - !Ref ProjectDepsLayer
       Policies:
         # Avoid resource dependency by using the parameter
         - S3ReadPolicy:
