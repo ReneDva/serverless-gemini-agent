@@ -3,15 +3,14 @@ Transform: AWS::Serverless-2016-10-31
 Description: >
   Serverless Gemini Voice Agent - S3 trigger + Presign API.
   This SAM template defines:
-    - an S3 bucket (optional) for uploads and outputs
-    - a Lambda function that starts Transcribe, waits for result, calls Gemini and writes summary
+    - an S3 bucket created and managed by this stack
+    - Lambda functions that start Transcribe, call Gemini and write summary
     - a Lambda function that returns pre-signed S3 upload URLs (exposed via HttpApi)
-  NOTE: Do not store secrets (API keys) directly in this file. Pass them at deploy time.
 
 Parameters:
   InputBucketName:
     Type: String
-    Description: S3 bucket for uploads and outputs (if you want SAM to create it, provide a unique name)
+    Description: Unique S3 bucket name to be created by this stack (must not already exist)
   GeminiApiKey:
     Type: String
     Description: Google Gemini API key (pass securely during deploy)
@@ -34,7 +33,6 @@ Parameters:
 
 Globals:
   Function:
-    # Set the runtime to Python 3.14 to match your environment
     Runtime: python3.14
     Timeout: 120
     MemorySize: 1024
@@ -43,6 +41,7 @@ Globals:
       - !Ref ProjectDepsLayer
     Environment:
       Variables:
+        # Use the parameter (string) to avoid a resource dependency
         INPUT_BUCKET_NAME: !Ref InputBucketName
         OUTPUT_PREFIX: !Ref OutputPrefix
         TRANSCRIBE_REGION: !Ref TranscribeRegion
@@ -55,9 +54,6 @@ Resources:
 
   ############################################################
   # Layer resource that packages Python dependencies
-  # Place the local layer content under ./layer/ with the layout:
-  #   layer/python/lib/python3.14/site-packages/...
-  # Build commands are provided above to populate that folder.
   ############################################################
   ProjectDepsLayer:
     Type: AWS::Serverless::LayerVersion
@@ -68,7 +64,7 @@ Resources:
       CompatibleRuntimes:
         - python3.14
 
-  ## Optional S3 bucket
+  ## S3 bucket created by this stack (resource referenced by events)
   InputBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -88,10 +84,10 @@ Resources:
       Handler: backend/handler.agent_handler
       CodeUri: .
       Description: "S3-triggered Lambda: start Transcribe, read transcript, call Gemini, write summary to S3"
-      # Attach the shared dependencies layer
       Layers:
         - !Ref ProjectDepsLayer
       Policies:
+        # Use the parameter (string) for policies to avoid dependency on the bucket resource
         - S3ReadPolicy:
             BucketName: !Ref InputBucketName
         - S3WritePolicy:
@@ -112,6 +108,7 @@ Resources:
         S3UploadTrigger:
           Type: S3
           Properties:
+            # Events must reference a bucket resource in the same template
             Bucket: !Ref InputBucket
             Events: s3:ObjectCreated:*
             Filter:
@@ -137,10 +134,10 @@ Resources:
       Description: "Generates pre-signed S3 PUT URLs for direct browser uploads"
       MemorySize: 128
       Timeout: 30
-      # Attach the same layer so presign handler can import shared libs if needed
       Layers:
         - !Ref ProjectDepsLayer
       Policies:
+        # Avoid resource dependency by using the parameter
         - S3WritePolicy:
             BucketName: !Ref InputBucketName
         - Statement:
@@ -157,7 +154,7 @@ Resources:
             Path: /presign
             Method: post
 
-  ## Optional helper function: Transcribe starter (if you want a separate starter)
+  ## Optional helper function: Transcribe starter
   TranscribeStarterFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -166,10 +163,10 @@ Resources:
       Description: "Optional: separate function to start Transcribe jobs (alternative flow)"
       MemorySize: 128
       Timeout: 60
-      # Attach the shared dependencies layer
       Layers:
         - !Ref ProjectDepsLayer
       Policies:
+        # Avoid resource dependency by using the parameter
         - S3ReadPolicy:
             BucketName: !Ref InputBucketName
         - S3WritePolicy:
@@ -190,6 +187,7 @@ Resources:
         OptionalBucketEvent:
           Type: S3
           Properties:
+            # Events must reference the bucket resource
             Bucket: !Ref InputBucket
             Events: s3:ObjectCreated:*
             Filter:

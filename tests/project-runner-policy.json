@@ -2,18 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Effect": "Allow",
-      "Action": [
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:ListBucket"
-      ],
-      "Resource": [
-        "arn:aws:s3:::rene-gemini-user-input-2025",
-        "arn:aws:s3:::rene-gemini-user-input-2025/*"
-      ]
-    },
-    {
+      "Sid": "S3ArtifactsBucketManagement",
       "Effect": "Allow",
       "Action": [
         "s3:CreateBucket",
@@ -22,37 +11,104 @@
         "s3:PutBucketLifecycleConfiguration",
         "s3:PutPublicAccessBlock",
         "s3:PutBucketPolicy",
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:HeadBucket",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketLifecycleConfiguration",
+        "s3:GetEncryptionConfiguration",
+        "s3:PutBucketNotificationConfiguration",
+        "s3:PutBucketAcl",
+        "s3:GetBucketAcl"
+      ],
+      "Resource": "arn:aws:s3:::*"
+    },
+    {
+      "Sid": "S3ObjectAccess",
+      "Effect": "Allow",
+      "Action": [
         "s3:PutObject",
-        "s3:ListBucket"
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListMultipartUploadParts",
+        "s3:AbortMultipartUpload",
+        "s3:PutObjectAcl",
+        "s3:GetObjectAcl"
       ],
-      "Resource": [
-        "arn:aws:s3:::rene-gemini-sam-artifacts-dev",
-        "arn:aws:s3:::rene-gemini-sam-artifacts-dev/*"
-      ]
+      "Resource": "arn:aws:s3:::*/*"
     },
     {
+      "Sid": "CloudFormationFullAccess",
       "Effect": "Allow",
       "Action": [
+        "cloudformation:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LambdaAndLogs",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:PublishLayerVersion",
+        "lambda:UpdateLayerVersion",
+        "lambda:DeleteFunction",
+        "lambda:GetFunction",
+        "lambda:ListFunctions",
         "lambda:InvokeFunction",
-        "lambda:ListFunctions"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "transcribe:StartTranscriptionJob",
-        "transcribe:GetTranscriptionJob",
-        "transcribe:ListTranscriptionJobs"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "logs:FilterLogEvents",
+        "lambda:AddPermission",
+        "lambda:CreateEventSourceMapping",
+        "lambda:RemovePermission",
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
         "logs:GetLogEvents",
-        "logs:DescribeLogStreams"
+        "logs:FilterLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ApiGatewayManagement",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:*",
+        "apigatewayv2:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IAMForSAM",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:GetRole",
+        "iam:PassRole",
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListRoles"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "STS",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:GetCallerIdentity"
       ],
       "Resource": "*"
     }
