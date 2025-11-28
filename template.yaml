@@ -61,7 +61,7 @@ Resources:
       Description: "Common python deps for Gemini agent (google-auth, google-genai, etc.)"
       ContentUri: layer/
       CompatibleRuntimes:
-        - python3.14
+        - python3.12
 
   ## S3 bucket created by this stack (resource referenced by events)
   InputBucket:
