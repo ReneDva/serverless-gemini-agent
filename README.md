@@ -70,7 +70,7 @@ Follow these steps to set up the project locally and deploy it to AWS.
 
 ### Prerequisites
 
-* **Python 3.14+** installed.
+* **Python 3.12+** installed.
 * **AWS CLI** configured with appropriate permissions.
 * **AWS SAM CLI** installed and available on your PATH (recommended version 1.0+; verify with `sam --version`).
 * **Google AI Studio API Key** ([Get it here](https://aistudio.google.com/)).
