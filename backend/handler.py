@@ -25,7 +25,7 @@ from google import genai
 INPUT_BUCKET_NAME = os.environ.get("INPUT_BUCKET_NAME")
 OUTPUT_PREFIX = os.environ.get("OUTPUT_PREFIX", "summaries/")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 TRANSCRIBE_REGION = os.environ.get("TRANSCRIBE_REGION", "us-east-1")
 TRANSCRIBE_LANGUAGE = os.environ.get("TRANSCRIBE_LANGUAGE", "en-US")  # use 'he-IL' for Hebrew
 
