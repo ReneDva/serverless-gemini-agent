@@ -28,12 +28,12 @@ Parameters:
     Description: Language code for Transcribe (use he-IL for Hebrew)
   GeminiModel:
     Type: String
-    Default: gemini-1.5-pro
+    Default: gemini-2.5-flash
     Description: Gemini model to use (change to a free model during development if needed)
 
 Globals:
   Function:
-    Runtime: python3.14
+    Runtime: python3.12
     Timeout: 120
     MemorySize: 1024
     Tracing: Active
