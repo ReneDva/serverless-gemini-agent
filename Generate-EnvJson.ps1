@@ -3,17 +3,17 @@
 #          that can be used with AWS SAM CLI (--env-vars).
 # Notes:
 # - Reads the .env file line by line using UTF-8 encoding.
-# - Builds a hashtable of key/value pairs.
-# - Converts the entire JSON string so that non-ASCII characters are stored as \uXXXX escapes.
+# - Builds a JSON object in the SAM format with Hebrew characters converted to \uXXXX.
 # - Writes the resulting env.json explicitly in UTF-8 (without BOM).
 
-function Convert-JsonToUnicodeEscape {
+function Convert-HebrewToUnicode {
     param([string]$jsonText)
     $sb = New-Object System.Text.StringBuilder
     foreach ($ch in $jsonText.ToCharArray()) {
-        if ([int][char]$ch -gt 127) {
-            # Convert non-ASCII characters to \uXXXX
-            $null = $sb.AppendFormat("\u{0:x4}", [int][char]$ch)
+        $code = [int][char]$ch
+        if ($code -ge 0x0590 -and $code -le 0x05FF) {
+            # Convert only Hebrew characters to \uXXXX
+            $null = $sb.AppendFormat("\u{0:x4}", $code)
         } else {
             $null = $sb.Append($ch)
         }
@@ -25,23 +25,23 @@ function Convert-JsonToUnicodeEscape {
 $envVars = @{}
 Get-Content -Path .env -Encoding UTF8 | ForEach-Object {
     if ($_ -match "^(.*?)=(.*)$") {
-        $key = $matches[1]
-        $value = $matches[2]
+        $key = $matches[1].Trim()
+        $value = $matches[2].Trim()
         $envVars[$key] = $value
     }
 }
 
-# Create a JSON object in the SAM (--env-vars) format
+# Build JSON object
 $jsonObj = @{
     PresignFunction    = @{ INPUT_BUCKET_NAME = $envVars["INPUT_BUCKET_NAME"] }
     VoiceAgentFunction = $envVars
 }
 
-# Convert to JSON string
-$jsonText = $jsonObj | ConvertTo-Json -Depth 3 -Compress
+# Convert to JSON string (with Hebrew characters still literal)
+$jsonText = $jsonObj | ConvertTo-Json -Depth 3
 
-# Escape non-ASCII characters in the entire JSON string
-$jsonEscaped = Convert-JsonToUnicodeEscape $jsonText
+# Replace Hebrew characters with \uXXXX escapes
+$jsonEscaped = Convert-HebrewToUnicode $jsonText
 
-# Write the JSON object to env.json explicitly in UTF-8
+# Write the JSON object to env.json explicitly in UTF-8 (without BOM)
 [System.IO.File]::WriteAllText("env.json", $jsonEscaped, (New-Object System.Text.UTF8Encoding($false)))
