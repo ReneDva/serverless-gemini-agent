@@ -16,22 +16,46 @@ from typing import Tuple, Optional
 
 import boto3
 from botocore.exceptions import ClientError
+import os
+import sys
+import logging
 
 # Google GenAI (Gemini) SDK
 # pip install google-genai (or google-generativeai depending on your chosen SDK)
 from google import genai
 
-# --- Environment variables ---
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
+
+# --- Environment variables (read once) ---
 INPUT_BUCKET_NAME = os.environ.get("INPUT_BUCKET_NAME")
 OUTPUT_PREFIX = os.environ.get("OUTPUT_PREFIX", "summaries/")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 TRANSCRIBE_REGION = os.environ.get("TRANSCRIBE_REGION", "us-east-1")
-TRANSCRIBE_LANGUAGE = os.environ.get("TRANSCRIBE_LANGUAGE", "en-US")  # use 'he-IL' for Hebrew
+TRANSCRIBE_LANGUAGE = os.environ.get("TRANSCRIBE_LANGUAGE", "en-US")
 
-# --- AWS clients ---
-s3_client = boto3.client("s3")
-transcribe_client = boto3.client("transcribe", region_name=TRANSCRIBE_REGION)
+# Validate required values
+def validate_env():
+    missing = []
+    if not os.environ.get("INPUT_BUCKET_NAME"):
+        missing.append("INPUT_BUCKET_NAME")
+    if not os.environ.get("GEMINI_API_KEY"):
+        missing.append("GEMINI_API_KEY")
+    if missing:
+        raise RuntimeError(f"Missing env vars: {', '.join(missing)}")
+
+validate_env()
+
+# --- AWS clients (create after env validated) ---
+session = boto3.session.Session()
+s3_client = session.client("s3")
+transcribe_client = session.client("transcribe", region_name=TRANSCRIBE_REGION)
+
+log.info("Environment loaded: INPUT_BUCKET=%s, MODEL=%s, TRANSCRIBE_REGION=%s",
+         INPUT_BUCKET_NAME, GEMINI_MODEL, TRANSCRIBE_REGION)
+# Do NOT log GEMINI_API_KEY
 
 
 def _parse_s3_event(event) -> Tuple[str, str]:
@@ -119,33 +143,185 @@ def _read_transcript_from_s3(transcript_uri: str) -> str:
     return transcripts[0].get("transcript", "")
 
 
-def _gemini_summarize_and_answer(text: str, question: str) -> dict:
+def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
     """
-    Send transcript text to Gemini, asking for:
-    - A 5-bullet summary
-    - A direct answer to a specific question
+    Request a structured summary from Gemini and return sections with titles and bullets.
+    Returns: { "sections": [ {"title": str, "bullets": [str, ...]}, ... ], "raw": str }
     """
     client = genai.Client(api_key=GEMINI_API_KEY)
+
+    # Prompt: ask for structured JSON output with sections and bullets.
     prompt = (
-        "You are an expert content analysis assistant.\n"
-        "Given the following transcript, provide:\n"
-        "1) A concise summary in exactly 5 bullet points.\n"
-        "2) A direct answer to the specific question.\n\n"
+        "Analyze the transcript and return a structured summary in JSON format.\n"
+        "The JSON must be an object with a single key 'sections' whose value is a list of\n"
+        "objects. Each object must have 'title' (string) and 'bullets' (array of strings).\n"
+        "Do not include any extra text outside the JSON. Example:\n"
+        '{ "sections": [ { "title": "Topic A", "bullets": ["point1","point2"] },'
+        ' { "title": "Topic B", "bullets": ["point1"] } ] }\n\n'
         "Transcript:\n"
-        f"{text}\n\n"
-        "Question:\n"
-        f"{question}\n"
+        f"{text}\n"
     )
-    # Adjust depending on the SDK interface (e.g., generate_content or models.generate)
-    result = client.models.generate(
+
+    # Call the SDK using the correct parameter name 'contents'.
+    result = client.models.generate_content(
         model=GEMINI_MODEL,
-        input=prompt,
+        contents=prompt,
+        config={"temperature": 0.0}
     )
-    # Standardize output
-    return {
-        "summary": result.output_text,  # If your SDK splits parts, adapt accordingly
-        "question": question,
-    }
+
+    # Extract raw text from the SDK response using common response shapes.
+    def _extract_raw_text(res):
+        if hasattr(res, "output_text"):
+            try:
+                t = getattr(res, "output_text")
+                if t:
+                    return t
+            except Exception:
+                pass
+        out = getattr(res, "output", None)
+        if out:
+            try:
+                first = out[0]
+                if hasattr(first, "content"):
+                    c = first.content
+                    if isinstance(c, (list, tuple)) and len(c) > 0:
+                        texts = []
+                        for part in c:
+                            if hasattr(part, "text"):
+                                texts.append(getattr(part, "text") or "")
+                            elif isinstance(part, dict) and "text" in part:
+                                texts.append(part["text"] or "")
+                        joined = "\n".join([t for t in texts if t])
+                        if joined:
+                            return joined
+                if hasattr(first, "text"):
+                    return getattr(first, "text") or ""
+                if isinstance(first, dict) and "text" in first:
+                    return first["text"] or ""
+            except Exception:
+                pass
+        try:
+            return str(res)
+        except Exception:
+            return ""
+
+    raw_text = _extract_raw_text(result)
+
+    # Try to parse JSON directly from the model output.
+    import json, re
+    def _parse_json_from_text(s: str):
+        if not s:
+            return None
+        # Attempt to find a JSON object in the text
+        # Find first '{' and last '}' to extract candidate JSON substring
+        start = s.find("{")
+        end = s.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        candidate = s[start:end+1]
+        try:
+            parsed = json.loads(candidate)
+            # Validate structure
+            if isinstance(parsed, dict) and "sections" in parsed and isinstance(parsed["sections"], list):
+                # Normalize entries
+                sections = []
+                for sec in parsed["sections"]:
+                    title = sec.get("title", "").strip() if isinstance(sec, dict) else ""
+                    bullets = []
+                    if isinstance(sec, dict):
+                        b = sec.get("bullets", [])
+                        if isinstance(b, list):
+                            bullets = [str(x).strip() for x in b if x and str(x).strip()]
+                    sections.append({"title": title or "Untitled", "bullets": bullets})
+                return {"sections": sections}
+        except Exception:
+            return None
+        return None
+
+    parsed = _parse_json_from_text(raw_text)
+
+    # If JSON parse succeeded, return it.
+    if parsed:
+        return {"sections": parsed["sections"], "raw": raw_text}
+
+    # Fallback: heuristically parse headings and bullets from plain text.
+    def _heuristic_parse(s: str):
+        lines = [ln.rstrip() for ln in s.splitlines()]
+        sections = []
+        current_title = None
+        current_bullets = []
+
+        # Patterns that indicate a heading line
+        heading_patterns = [
+            re.compile(r'^\s*#{1,6}\s*(.+)$'),        # Markdown headings: # Title
+            re.compile(r'^\s*([A-Z][\w\s\-]{2,60}):\s*$'),  # "Title:" line
+            re.compile(r'^\s*([A-Z][\w\s\-]{2,60})\s*$')    # Standalone Title line (heuristic)
+        ]
+        # Bullet patterns
+        bullet_re = re.compile(r'^\s*([-•*]\s+)(.+)$')
+        numbered_re = re.compile(r'^\s*\d+[\.\)]\s+(.+)$')
+
+        for ln in lines:
+            if not ln.strip():
+                continue
+            # Check for explicit bullet
+            m = bullet_re.match(ln)
+            if m:
+                text = m.group(2).strip()
+                if current_title is None:
+                    current_title = "General"
+                current_bullets.append(text)
+                continue
+            m2 = numbered_re.match(ln)
+            if m2:
+                text = m2.group(1).strip()
+                if current_title is None:
+                    current_title = "General"
+                current_bullets.append(text)
+                continue
+            # Check for heading patterns
+            is_heading = False
+            for hp in heading_patterns:
+                mh = hp.match(ln)
+                if mh:
+                    # flush previous section
+                    if current_title or current_bullets:
+                        sections.append({
+                            "title": current_title or "General",
+                            "bullets": current_bullets
+                        })
+                    current_title = mh.group(1).strip()
+                    current_bullets = []
+                    is_heading = True
+                    break
+            if is_heading:
+                continue
+            # If line is long and we have a current section, treat as bullet
+            if current_title:
+                current_bullets.append(ln.strip())
+            else:
+                # Start a general section
+                current_title = "General"
+                current_bullets.append(ln.strip())
+
+        # flush last
+        if current_title or current_bullets:
+            sections.append({
+                "title": current_title or "General",
+                "bullets": current_bullets
+            })
+        # Normalize: ensure bullets are strings and trimmed
+        for sec in sections:
+            sec["title"] = sec["title"].strip() if sec.get("title") else "Untitled"
+            sec["bullets"] = [b.strip() for b in sec.get("bullets", []) if b and b.strip()]
+        return sections
+
+    sections = _heuristic_parse(raw_text)
+
+    return {"sections": sections, "raw": raw_text}
+
+
+
 
 
 def _write_summary_to_s3(original_key: str, summary: dict):
@@ -174,9 +350,17 @@ def agent_handler(event, context):
     - Summarizes with Gemini
     - Writes summary JSON to S3
     """
+
+    logging.basicConfig(
+        stream=sys.stdout,
+        level=logging.INFO,
+        format="%(message)s"
+    )
+    logging.info("Loaded ENV: %s", dict(os.environ))
+
     # Basic validation
     if not GEMINI_API_KEY:
-        return {"statusCode": 500, "body": json.dumps("ERROR: GEMINI_API_KEY missing")}
+        return {"statusCode": 500, "body": json.dumps(f"ERROR: GEMINI_API_KEY missing, GEMINI_API_KEY={GEMINI_API_KEY}")}
     if not INPUT_BUCKET_NAME:
         return {"statusCode": 500, "body": json.dumps("ERROR: INPUT_BUCKET_NAME missing")}
 

@@ -5,3 +5,4 @@ venv/
 
 # Secret files
 .env
+secrets_gemini.json

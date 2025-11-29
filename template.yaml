@@ -11,21 +11,27 @@ Parameters:
   InputBucketName:
     Type: String
     Description: Unique S3 bucket name to be created by this stack (must not already exist)
-  GeminiApiKey:
+
+  GeminiSecretName:
     Type: String
-    Description: Google Gemini API key (pass securely during deploy)
+    Default: my/gemini/all-env
+    Description: Secrets Manager secret name that contains GEMINI_API_KEY (and optionally other secrets)
+
   OutputPrefix:
     Type: String
     Default: summaries/
     Description: Prefix for summary outputs in S3
+
   TranscribeRegion:
     Type: String
     Default: us-east-1
     Description: AWS region for Transcribe service
+
   TranscribeLanguage:
     Type: String
     Default: en-US
     Description: Language code for Transcribe (use he-IL for Hebrew)
+
   GeminiModel:
     Type: String
     Default: gemini-2.5-flash
@@ -41,13 +47,18 @@ Globals:
       - !Ref ProjectDepsLayer
     Environment:
       Variables:
+        # Non-sensitive configuration kept in template
         INPUT_BUCKET_NAME: !Ref InputBucketName
         OUTPUT_PREFIX: !Ref OutputPrefix
         TRANSCRIBE_REGION: !Ref TranscribeRegion
         TRANSCRIBE_LANGUAGE: !Ref TranscribeLanguage
         GEMINI_MODEL: !Ref GeminiModel
-        # GEMINI_API_KEY is intentionally NOT set here to avoid committing secrets.
-        # Provide GEMINI_API_KEY at deploy time (sam deploy --parameter-overrides) or via Secrets Manager.
+
+        # Sensitive value injected from Secrets Manager at deploy time
+        # This dynamic reference resolves to the SecretString field "GEMINI_API_KEY"
+        # and will be placed into the Lambda environment variable GEMINI_API_KEY.
+        # Note: dynamic references are resolved during CloudFormation deployment (sam deploy).
+        GEMINI_API_KEY: !Sub '{{resolve:secretsmanager:${GeminiSecretName}:SecretString:GEMINI_API_KEY::}}'
 
 Resources:
 
@@ -150,9 +161,11 @@ Outputs:
   UploadApiUrl:
     Description: "HTTP API endpoint to request a pre-signed URL (use this in frontend/upload.js)"
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/presign"
+
   BucketName:
     Description: "S3 bucket name used for uploads and outputs"
     Value: !Ref InputBucketName
+
   VoiceAgentFunctionArn:
     Description: "ARN of the voice agent Lambda"
     Value: !GetAtt VoiceAgentFunction.Arn
