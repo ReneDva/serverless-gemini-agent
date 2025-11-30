@@ -1,7 +1,14 @@
-// This URL is printed by `sam deploy` as Output: UploadApiUrl
-const PRESIGN_ENDPOINT = "https://<your-api-id>.execute-api.<region>.amazonaws.com/presign";
-// This URL should point to your Lambda/API that returns the summary JSON
-const SUMMARY_ENDPOINT = "http://localhost:3000/summary"; // local dev; replace with API Gateway URL in cloud
+// Detect environment based on hostname
+const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+// Define endpoints accordingly
+const PRESIGN_ENDPOINT = isLocal
+  ? "http://127.0.0.1:3000/presign"
+  : "https://<your-api-id>.execute-api.<region>.amazonaws.com/presign";
+
+const SUMMARY_ENDPOINT = isLocal
+  ? "http://127.0.0.1:3000/summary"
+  : "https://<your-api-id>.execute-api.<region>.amazonaws.com/summary";
 
 const fileInput = document.getElementById('file-upload');
 const uploadBtn = document.getElementById('upload-btn');
