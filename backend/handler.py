@@ -23,7 +23,7 @@ import logging
 # Google GenAI (Gemini) SDK
 # pip install google-genai (or google-generativeai depending on your chosen SDK)
 from google import genai
-
+import json, re
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -150,15 +150,15 @@ def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
     """
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    # Prompt: ask for structured JSON output with sections and bullets.
+    # Prompt: ask for structured JSON output with sections and bullets in Hebrew.
     prompt = (
-        "Analyze the transcript and return a structured summary in JSON format.\n"
-        "The JSON must be an object with a single key 'sections' whose value is a list of\n"
-        "objects. Each object must have 'title' (string) and 'bullets' (array of strings).\n"
-        "Do not include any extra text outside the JSON. Example:\n"
-        '{ "sections": [ { "title": "Topic A", "bullets": ["point1","point2"] },'
-        ' { "title": "Topic B", "bullets": ["point1"] } ] }\n\n'
-        "Transcript:\n"
+        "נתח את התמליל והחזר תקציר מובנה בפורמט JSON.\n"
+        "ה‑JSON חייב להיות אובייקט עם מפתח יחיד בשם 'sections' שערכו רשימה של אובייקטים.\n"
+        "כל אובייקט חייב לכלול 'title' (מחרוזת בעברית) ו‑'bullets' (מערך של מחרוזות בעברית).\n"
+        "אל תוסיף טקסט נוסף מחוץ ל‑JSON. דוגמה:\n"
+        '{ "sections": [ { "title": "נושא א", "bullets": ["נקודה1","נקודה2"] },'
+        ' { "title": "נושא ב", "bullets": ["נקודה1"] } ] }\n\n'
+        "תמליל:\n"
         f"{text}\n"
     )
 
@@ -208,7 +208,7 @@ def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
     raw_text = _extract_raw_text(result)
 
     # Try to parse JSON directly from the model output.
-    import json, re
+
     def _parse_json_from_text(s: str):
         if not s:
             return None
@@ -253,10 +253,11 @@ def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
 
         # Patterns that indicate a heading line
         heading_patterns = [
-            re.compile(r'^\s*#{1,6}\s*(.+)$'),        # Markdown headings: # Title
-            re.compile(r'^\s*([A-Z][\w\s\-]{2,60}):\s*$'),  # "Title:" line
-            re.compile(r'^\s*([A-Z][\w\s\-]{2,60})\s*$')    # Standalone Title line (heuristic)
+            re.compile(r'^\s*#{1,6}\s*(.+)$'),  # Markdown headings
+            re.compile(r'^\s*([A-Zא-ת][\w\s\-]{2,60}):\s*$'),  # "Title:" line (Latin or Hebrew)
+            re.compile(r'^\s*([A-Zא-ת][\w\s\-]{2,60})\s*$')  # Standalone Title line (Latin or Hebrew)
         ]
+
         # Bullet patterns
         bullet_re = re.compile(r'^\s*([-•*]\s+)(.+)$')
         numbered_re = re.compile(r'^\s*\d+[\.\)]\s+(.+)$')
