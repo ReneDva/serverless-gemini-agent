@@ -50,7 +50,7 @@ validate_env()
 
 # --- AWS clients (create after env validated) ---
 session = boto3.session.Session()
-s3_client = session.client("s3")
+s3_client = session.client("s3", region_name="us-east-1")
 transcribe_client = session.client("transcribe", region_name=TRANSCRIBE_REGION)
 
 log.info("Environment loaded: INPUT_BUCKET=%s, MODEL=%s, TRANSCRIBE_REGION=%s",

@@ -2,10 +2,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
   Serverless Gemini Voice Agent - S3 trigger + Presign API.
-  This SAM template defines:
-    - an S3 bucket created and managed by this stack
-    - Lambda functions that start Transcribe, call Gemini and write summary
-    - a Lambda function that returns pre-signed S3 upload URLs (exposed via HttpApi)
 
 Parameters:
   InputBucketName:
@@ -15,7 +11,7 @@ Parameters:
   GeminiSecretName:
     Type: String
     Default: my/gemini/all-env
-    Description: Secrets Manager secret name that contains GEMINI_API_KEY (and optionally other secrets)
+    Description: Secrets Manager secret name that contains GEMINI_API_KEY
 
   OutputPrefix:
     Type: String
@@ -29,13 +25,13 @@ Parameters:
 
   TranscribeLanguage:
     Type: String
-    Default: en-US
+    Default: he-IL
     Description: Language code for Transcribe (use he-IL for Hebrew)
 
   GeminiModel:
     Type: String
     Default: gemini-2.5-flash
-    Description: Gemini model to use (change to a free model during development if needed)
+    Description: Gemini model to use
 
 Globals:
   Function:
@@ -47,34 +43,69 @@ Globals:
       - !Ref ProjectDepsLayer
     Environment:
       Variables:
-        # Non-sensitive configuration kept in template
         INPUT_BUCKET_NAME: !Ref InputBucketName
         OUTPUT_PREFIX: !Ref OutputPrefix
         TRANSCRIBE_REGION: !Ref TranscribeRegion
         TRANSCRIBE_LANGUAGE: !Ref TranscribeLanguage
         GEMINI_MODEL: !Ref GeminiModel
-
-        # Sensitive value injected from Secrets Manager at deploy time
-        # This dynamic reference resolves to the SecretString field "GEMINI_API_KEY"
-        # and will be placed into the Lambda environment variable GEMINI_API_KEY.
-        # Note: dynamic references are resolved during CloudFormation deployment (sam deploy).
         GEMINI_API_KEY: !Sub '{{resolve:secretsmanager:${GeminiSecretName}:SecretString:GEMINI_API_KEY::}}'
 
 Resources:
 
-  ############################################################
-  # Layer resource that packages Python dependencies
-  ############################################################
   ProjectDepsLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: project-deps
-      Description: "Common python deps for Gemini agent (google-auth, google-genai, etc.)"
+      Description: "Common python deps for Gemini agent"
       ContentUri: layer/
       CompatibleRuntimes:
         - python3.12
 
-  ## S3 bucket created by this stack (resource referenced by events)
+  ServerlessHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods:
+          - OPTIONS
+          - POST
+          - GET
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - "*"
+
+  PresignFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: backend/presign_handler.presign_handler
+      CodeUri: .
+      Description: "Generates pre-signed S3 PUT URLs for direct browser uploads"
+      MemorySize: 128
+      Timeout: 30
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref InputBucketName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - "logs:CreateLogGroup"
+                - "logs:CreateLogStream"
+                - "logs:PutLogEvents"
+              Resource: "*"
+      Events:
+        PresignPost:
+          Type: HttpApi
+          Properties:
+            Path: /presign
+            Method: post
+            ApiId: !Ref ServerlessHttpApi
+        PresignOptions:
+          Type: HttpApi
+          Properties:
+            Path: /presign
+            Method: options
+            ApiId: !Ref ServerlessHttpApi
+
   InputBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -86,8 +117,19 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - HEAD
+            AllowedHeaders:
+              - "*"
+            MaxAge: 3000
 
-  ## Lambda: Voice Agent (S3-triggered)
   VoiceAgentFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -131,35 +173,9 @@ Resources:
                   - Name: suffix
                     Value: .ogg
 
-  ## Lambda: Presign URL generator (HTTP API)
-  PresignFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: backend/presign_handler.presign_handler
-      CodeUri: .
-      Description: "Generates pre-signed S3 PUT URLs for direct browser uploads"
-      MemorySize: 128
-      Timeout: 30
-      Policies:
-        - S3WritePolicy:
-            BucketName: !Ref InputBucketName
-        - Statement:
-            - Effect: Allow
-              Action:
-                - "logs:CreateLogGroup"
-                - "logs:CreateLogStream"
-                - "logs:PutLogEvents"
-              Resource: "*"
-      Events:
-        PresignApi:
-          Type: HttpApi
-          Properties:
-            Path: /presign
-            Method: post
-
 Outputs:
   UploadApiUrl:
-    Description: "HTTP API endpoint to request a pre-signed URL (use this in frontend/upload.js)"
+    Description: "HTTP API endpoint to request a pre-signed URL"
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/presign"
 
   BucketName:

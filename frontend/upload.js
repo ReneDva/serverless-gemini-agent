@@ -30,41 +30,57 @@ uploadBtn.addEventListener('click', async () => {
 
   try {
     updateStatus(`1/2: מבקש כתובת presign עבור ${file.name}...`);
+    console.log(">>> שולח בקשת presign עם גוף:", { fileName: file.name });
+
     const resp = await fetch(PRESIGN_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileName: file.name })
     });
+
+    console.log(">>> תשובת presign raw:", resp);
+
     if (!resp.ok) {
-      const errorBody = await resp.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(`נכשל בקבלת כתובת presign: ${resp.status} ${errorBody.error}`);
+      const errorBody = await resp.text();
+      console.error(">>> גוף שגיאה מהשרת:", errorBody);
+      throw new Error(`נכשל בקבלת כתובת presign: ${resp.status} ${errorBody}`);
     }
+
     const data = await resp.json();
+    console.log(">>> נתוני presign:", data);
+
     const uploadUrl = data.uploadUrl;
 
     updateStatus("2/2: מעלה קובץ ישירות ל‑S3...");
+    console.log(">>> מעלה ל‑S3 בכתובת:", uploadUrl);
+
     const putResp = await fetch(uploadUrl, {
       method: 'PUT',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
       body: file
     });
+
+
+    console.log(">>> תשובת PUT ל‑S3:", putResp);
+
     if (!putResp.ok) throw new Error(`העלאה ל‑S3 נכשלה: ${putResp.status}`);
 
     updateStatus("העלאה הצליחה! מתחיל עיבוד...");
 
-    // Call summary endpoint to get transcript + summary
     const summaryResp = await fetch(`${SUMMARY_ENDPOINT}?fileName=${encodeURIComponent(file.name)}`);
+    console.log(">>> קריאת summary:", summaryResp);
+
     if (!summaryResp.ok) throw new Error(`נכשל בקבלת סיכום: ${summaryResp.status}`);
     const summaryData = await summaryResp.json();
+    console.log(">>> נתוני summary:", summaryData);
 
-    // Display transcript/summary nicely
     summaryText.textContent = JSON.stringify(summaryData, null, 2);
 
   } catch (err) {
-    console.error(err);
+    console.error(">>> שגיאה כללית:", err);
     updateStatus(`העלאה נכשלה: ${err.message}`, true);
   }
 });
+
 
 // Download as PDF
 downloadBtn.addEventListener('click', () => {
