@@ -322,9 +322,6 @@ def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
     return {"sections": sections, "raw": raw_text}
 
 
-
-
-
 def _write_summary_to_s3(original_key: str, summary: dict):
     """
     Write the summary JSON next to the original, under OUTPUT_PREFIX.
@@ -352,49 +349,79 @@ def agent_handler(event, context):
     - Writes summary JSON to S3
     """
 
-    logging.basicConfig(
-        stream=sys.stdout,
-        level=logging.INFO,
-        format="%(message)s"
-    )
-    logging.info("Loaded ENV: %s", dict(os.environ))
+    log.info("Loaded ENV: INPUT_BUCKET=%s, MODEL=%s, REGION=%s",
+             INPUT_BUCKET_NAME, GEMINI_MODEL, TRANSCRIBE_REGION)
 
     # Basic validation
     if not GEMINI_API_KEY:
-        return {"statusCode": 500, "body": json.dumps(f"ERROR: GEMINI_API_KEY missing, GEMINI_API_KEY={GEMINI_API_KEY}")}
+        return {
+            "statusCode": 500,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps("ERROR: GEMINI_API_KEY missing")
+        }
     if not INPUT_BUCKET_NAME:
-        return {"statusCode": 500, "body": json.dumps("ERROR: INPUT_BUCKET_NAME missing")}
+        return {
+            "statusCode": 500,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps("ERROR: INPUT_BUCKET_NAME missing")
+        }
 
+    # Parse S3 event
     try:
         bucket, key = _parse_s3_event(event)
+        log.info("Received S3 event: bucket=%s, key=%s", bucket, key)
     except (KeyError, IndexError, ValueError) as e:
-        return {"statusCode": 202, "body": json.dumps(f"Invalid S3 event: {str(e)}")}
+        return {
+            "statusCode": 202,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps(f"Invalid S3 event: {str(e)}")
+        }
 
     # Start Transcribe
     try:
         job_name = _start_transcribe_job(bucket, key)
-        print(f"Transcribe job started: {job_name} for s3://{bucket}/{key}")
+        log.info("Transcribe job started: %s for s3://%s/%s", job_name, bucket, key)
     except ClientError as e:
-        return {"statusCode": 500, "body": json.dumps(f"Transcribe start error: {str(e)}")}
+        return {
+            "statusCode": 500,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps(f"Transcribe start error: {str(e)}")
+        }
 
     # Wait for completion
     try:
         job = _wait_for_transcribe(job_name)
         if job is None:
-            return {"statusCode": 504, "body": json.dumps("Transcribe timed out")}
+            return {
+                "statusCode": 504,
+                "headers": {"Access-Control-Allow-Origin": "*"},
+                "body": json.dumps("Transcribe timed out")
+            }
     except Exception as e:
-        return {"statusCode": 500, "body": json.dumps(f"Transcribe failed: {str(e)}")}
+        return {
+            "statusCode": 500,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps(f"Transcribe failed: {str(e)}")
+        }
 
     # Read transcript
     transcript_uri = job["Transcript"]["TranscriptFileUri"]
     try:
         transcript_text = _read_transcript_from_s3(transcript_uri)
         if not transcript_text.strip():
-            return {"statusCode": 200, "body": json.dumps("No transcript text found")}
+            return {
+                "statusCode": 200,
+                "headers": {"Access-Control-Allow-Origin": "*"},
+                "body": json.dumps("No transcript text found")
+            }
     except Exception as e:
-        return {"statusCode": 500, "body": json.dumps(f"Read transcript error: {str(e)}")}
+        return {
+            "statusCode": 500,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps(f"Read transcript error: {str(e)}")
+        }
 
-    # Metadata question (optional): read question from object metadata; else default
+    # Metadata question (optional)
     question = "What was the meeting objective according to the transcript?"
     try:
         head = s3_client.head_object(Bucket=bucket, Key=key)
@@ -402,21 +429,84 @@ def agent_handler(event, context):
         if "question" in meta:
             question = meta["question"]
     except Exception:
-        pass  # If metadata not accessible, use default
+        pass
 
     # Call Gemini
     try:
         summary = _gemini_summarize_and_answer(transcript_text, question)
     except Exception as e:
-        return {"statusCode": 500, "body": json.dumps(f"Gemini error: {str(e)}")}
+        return {
+            "statusCode": 500,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps(f"Gemini error: {str(e)}")
+        }
 
     # Write summary to S3
     try:
         out_key = _write_summary_to_s3(key, summary)
         return {
             "statusCode": 200,
-            "body": json.dumps({"status": "ok", "summary_key": out_key}),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "OPTIONS,GET"
+            },
+            "body": json.dumps({"status": "ok", "summary_key": out_key}, ensure_ascii=False)
         }
     except Exception as e:
-        return {"statusCode": 500, "body": json.dumps(f"S3 write error: {str(e)}")}
+        return {
+            "statusCode": 500,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps(f"S3 write error: {str(e)}")
+        }
 
+def summary_handler(event, context):
+    """
+    Lambda entrypoint for HTTP GET requests to fetch a summary.
+    This function:
+    - Reads the 'fileName' query parameter from the request
+    - Constructs the expected summary object key in S3 (OUTPUT_PREFIX + fileName + ".summary.json")
+    - Retrieves the summary JSON from S3
+    - Returns the JSON with proper CORS headers so that browsers can access it
+
+    Expected request:
+      GET /summary?fileName=<original-audio-file-name>
+
+    Example:
+      If the original file was "user_recording_123.m4a",
+      the summary will be stored as "summaries/user_recording_123.m4a.summary.json"
+    """
+
+    # Extract fileName from query parameters
+    params = event.get("queryStringParameters") or {}
+    file_name = params.get("fileName")
+    if not file_name:
+        return {
+            "statusCode": 400,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps({"error": "Missing fileName query parameter"})
+        }
+
+    # Build the summary key
+    out_key = f"{OUTPUT_PREFIX}{file_name}.summary.json"
+
+    try:
+        obj = s3_client.get_object(Bucket=INPUT_BUCKET_NAME, Key=out_key)
+        body = obj["Body"].read().decode("utf-8")
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "OPTIONS,GET"
+            },
+            "body": body
+        }
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "headers": {"Access-Control-Allow-Origin": "*"},
+            "body": json.dumps({"error": str(e)})
+        }

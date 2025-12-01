@@ -10,7 +10,8 @@ def presign_handler(event, context):
     """
     Lambda entrypoint.
     - OPTIONS: מחזיר תשובת preflight עם כותרות CORS
-    - POST: מצפה ל־JSON {"fileName": "<name>"} ומחזיר כתובת presigned
+    - POST: מצפה ל־JSON {"fileName": "<name>", "contentType": "<mime-type>"}
+            ומחזיר כתובת presigned
     """
     method = event.get("requestContext", {}).get("http", {}).get("method", "")
 
@@ -37,10 +38,15 @@ def presign_handler(event, context):
     try:
         body = json.loads(event.get("body") or "{}")
         file_name = body.get("fileName", "uploaded_audio_test.mp3")
+        content_type = body.get("contentType", "application/octet-stream")
 
         presigned_url = s3_client.generate_presigned_url(
             ClientMethod="put_object",
-            Params={"Bucket": INPUT_BUCKET_NAME, "Key": file_name},
+            Params={
+                "Bucket": INPUT_BUCKET_NAME,
+                "Key": file_name,
+                "ContentType": content_type
+            },
             ExpiresIn=3600,
         )
 
@@ -52,7 +58,11 @@ def presign_handler(event, context):
                 "Access-Control-Allow-Headers": "Content-Type",
                 "Access-Control-Allow-Methods": "OPTIONS,POST"
             },
-            "body": json.dumps({"uploadUrl": presigned_url, "fileKey": file_name}),
+            "body": json.dumps({
+                "uploadUrl": presigned_url,
+                "fileKey": file_name,
+                "contentType": content_type
+            }),
         }
     except Exception as e:
         print(f"Error generating presigned URL: {e}")
