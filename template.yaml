@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Serverless Gemini Voice Agent - S3 trigger + Presign API.
+  Serverless Gemini Voice Agent - S3 trigger + Presign + Summary API.
 
 Parameters:
   InputBucketName:
@@ -97,13 +97,30 @@ Resources:
           Type: HttpApi
           Properties:
             Path: /presign
-            Method: post
+            Method: POST
             ApiId: !Ref ServerlessHttpApi
         PresignOptions:
           Type: HttpApi
           Properties:
             Path: /presign
-            Method: options
+            Method: OPTIONS
+            ApiId: !Ref ServerlessHttpApi
+
+  SummaryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: backend/handler.summary_handler
+      CodeUri: .
+      Description: "Fetches summary JSON from S3 for a given fileName"
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref InputBucketName
+      Events:
+        ApiSummary:
+          Type: HttpApi
+          Properties:
+            Path: /summary
+            Method: GET
             ApiId: !Ref ServerlessHttpApi
 
   InputBucket:
@@ -177,6 +194,10 @@ Outputs:
   UploadApiUrl:
     Description: "HTTP API endpoint to request a pre-signed URL"
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/presign"
+
+  SummaryApiUrl:
+    Description: "HTTP API endpoint to fetch summaries"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/summary"
 
   BucketName:
     Description: "S3 bucket name used for uploads and outputs"
