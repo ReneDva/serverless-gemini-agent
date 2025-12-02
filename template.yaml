@@ -116,11 +116,17 @@ Resources:
         - S3ReadPolicy:
             BucketName: !Ref InputBucketName
       Events:
-        ApiSummary:
+        ApiSummaryGet:
           Type: HttpApi
           Properties:
             Path: /summary
             Method: GET
+            ApiId: !Ref ServerlessHttpApi
+        ApiSummaryOptions:
+          Type: HttpApi
+          Properties:
+            Path: /summary
+            Method: OPTIONS
             ApiId: !Ref ServerlessHttpApi
 
   InputBucket:
@@ -171,7 +177,7 @@ Resources:
                 - "logs:PutLogEvents"
               Resource: "*"
       Events:
-        S3UploadTrigger:
+        S3UploadTriggerMp3:
           Type: S3
           Properties:
             Bucket: !Ref InputBucket
@@ -181,12 +187,44 @@ Resources:
                 Rules:
                   - Name: suffix
                     Value: .mp3
+        S3UploadTriggerWav:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
                   - Name: suffix
                     Value: .wav
+        S3UploadTriggerM4a:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
                   - Name: suffix
                     Value: .m4a
+        S3UploadTriggerFlac:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
                   - Name: suffix
                     Value: .flac
+        S3UploadTriggerOgg:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
                   - Name: suffix
                     Value: .ogg
 

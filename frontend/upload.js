@@ -1,15 +1,12 @@
-// Detect environment based on hostname
-const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-
-console.log(">>> זיהוי סביבת הרצה:", isLocal ? "Local" : "Cloud");
+const isLocal = false;
 
 const PRESIGN_ENDPOINT = isLocal
   ? "http://127.0.0.1:3000/presign"
-  : "https://<your-api-id>.execute-api.<region>.amazonaws.com/presign";
+  : "https://39m82loj48.execute-api.us-east-1.amazonaws.com/presign";
 
 const SUMMARY_ENDPOINT = isLocal
   ? "http://127.0.0.1:3000/summary"
-  : "https://<your-api-id>.execute-api.<region>.amazonaws.com/summary";
+  : "https://39m82loj48.execute-api.us-east-1.amazonaws.com/summary";
 
 console.log(">>> PRESIGN_ENDPOINT:", PRESIGN_ENDPOINT);
 console.log(">>> SUMMARY_ENDPOINT:", SUMMARY_ENDPOINT);
@@ -26,16 +23,68 @@ function updateStatus(message, isError = false) {
   console.log(">>> עדכון סטטוס:", message, "שגיאה?", isError);
 }
 
-function resolveContentType(file) {
-  const ext = file.name.split('.').pop().toLowerCase();
-  switch (ext) {
-    case 'mp3': return 'audio/mpeg';
-    case 'wav': return 'audio/wav';
-    case 'm4a': return 'audio/m4a';
-    case 'ogg': return 'audio/ogg';
-    case 'flac': return 'audio/flac';
-    default: return 'application/octet-stream';
+async function fetchSummaryWithRetry(fileName, maxAttempts = 12, intervalMs = 10000) {
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt++;
+    console.log(`>>> ניסיון ${attempt} לקבלת summary עבור ${fileName}`);
+    try {
+      const resp = await fetch(`${SUMMARY_ENDPOINT}?fileName=${encodeURIComponent(fileName)}`);
+      console.log(">>> תשובת summary התקבלה. סטטוס:", resp.status);
+
+      if (resp.status === 404) {
+        updateStatus(`הסיכום עדיין בתהליך עיבוד... ניסיון ${attempt}/${maxAttempts}`, true);
+        console.warn(">>> Summary not ready yet (404)");
+        if (attempt < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, intervalMs));
+          continue;
+        } else {
+          throw new Error("הסיכום לא נוצר גם אחרי המתנה של 2 דקות.");
+        }
+      }
+
+      if (!resp.ok) {
+        const errorBody = await resp.text();
+        console.error(">>> גוף שגיאה מהשרת:", errorBody);
+        throw new Error(`נכשל בקבלת סיכום: ${resp.status} ${errorBody}`);
+      }
+
+      const summaryData = await resp.json();
+      console.log(">>> נתוני summary:", summaryData);
+      renderSummary(summaryData);
+      updateStatus("הסיכום התקבל בהצלחה!");
+      return; // יציאה מוצלחת
+    } catch (err) {
+      console.error(">>> שגיאה בניסיון קבלת summary:", err);
+      if (attempt >= maxAttempts) {
+        updateStatus(`נכשל בקבלת סיכום אחרי ${maxAttempts} ניסיונות: ${err.message}`, true);
+        return;
+      } else {
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+      }
+    }
   }
+}
+
+function renderSummary(summaryData) {
+  let html = "";
+  if (summaryData.sections) {
+    summaryData.sections.forEach(section => {
+      html += `<h3 style="margin-top:20px;">${section.title}</h3>`;
+      html += "<ul>";
+      section.bullets.forEach(bullet => {
+        html += `<li>${bullet}</li>`;
+      });
+      html += "</ul>";
+    });
+  }
+
+  // הצגת מטאדאטה למטה בקטן
+  if (summaryData.raw) {
+    html += `<div style="font-size:10px; color:gray; text-align:left; margin-top:20px;">${summaryData.raw}</div>`;
+  }
+
+  summaryText.innerHTML = html;
 }
 
 uploadBtn.addEventListener('click', async () => {
@@ -46,7 +95,7 @@ uploadBtn.addEventListener('click', async () => {
   }
 
   try {
-    const contentType = "application/octet-stream"; // אחידות
+    const contentType = "application/octet-stream"; // אחידות מול backend
     console.log(">>> קובץ נבחר:", file.name, "גודל:", file.size, "סוג:", file.type);
     console.log(">>> Content-Type שנבחר להעלאה:", contentType);
 
@@ -88,16 +137,8 @@ uploadBtn.addEventListener('click', async () => {
 
     updateStatus("העלאה הצליחה! מתחיל עיבוד...");
 
-    console.log(">>> שולח בקשת summary ל:", SUMMARY_ENDPOINT, "עם fileName:", file.name);
-
-    const summaryResp = await fetch(`${SUMMARY_ENDPOINT}?fileName=${encodeURIComponent(file.name)}`);
-    console.log(">>> תשובת summary התקבלה. סטטוס:", summaryResp.status);
-
-    if (!summaryResp.ok) throw new Error(`נכשל בקבלת סיכום: ${summaryResp.status}`);
-    const summaryData = await summaryResp.json();
-    console.log(">>> נתוני summary:", summaryData);
-
-    summaryText.textContent = JSON.stringify(summaryData, null, 2);
+    // Polling for summary
+    await fetchSummaryWithRetry(file.name);
 
   } catch (err) {
     console.error(">>> שגיאה כללית:", err);
@@ -106,13 +147,26 @@ uploadBtn.addEventListener('click', async () => {
 });
 
 // Download as PDF
+// כאן תכניס את המחרוזת הארוכה מתוך assistant-base64.txt
+const assistantFont = "<<<הכניסי כאן את המחרוזת Base64>>>";
+
 downloadBtn.addEventListener('click', () => {
-  console.log(">>> התחלת יצירת PDF להורדה");
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
-  doc.setFont("Helvetica", "normal");
-  doc.setFontSize(12);
-  doc.text(summaryText.textContent, 40, 60, { maxWidth: 500 });
-  doc.save("summary.pdf");
-  console.log(">>> PDF נוצר ונשמר בשם summary.pdf");
+    console.log(">>> התחלת יצירת PDF להורדה");
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
+
+    // הוספת הפונט ל־VFS
+    doc.addFileToVFS("Assistant.ttf", assistantFont);
+    doc.addFont("Assistant.ttf", "Assistant", "normal");
+
+    // שימוש בפונט Assistant
+    doc.setFont("Assistant", "normal");
+    doc.setFontSize(12);
+
+    // יצירת טקסט מה־HTML
+    const textContent = summaryText.innerText;
+    doc.text(textContent, 40, 60, { maxWidth: 500 });
+
+    doc.save("summary.pdf");
+    console.log(">>> PDF נוצר ונשמר בשם summary.pdf");
 });

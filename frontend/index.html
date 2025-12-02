@@ -3,10 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <title>Audio Summarizer</title>
+
+  <!-- טעינת פונט Assistant מגוגל -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@200..800&family=Noto+Sans+Hebrew:wght@100..900&display=swap" rel="stylesheet">
+
   <style>
-    body { font-family: Arial, sans-serif; direction: rtl; }
-    #summary-container { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
+    body {
+      font-family: "Assistant", sans-serif;
+      direction: rtl;
+    }
+    #summary-container {
+      margin-top: 20px;
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
     #download-btn { margin-top: 10px; }
+    h1, h2, h3 { font-weight: 600; }
+    ul { margin-right: 20px; }
   </style>
 </head>
 <body>
@@ -16,14 +31,21 @@
   <div id="status-message"></div>
 
   <div id="summary-container">
-    <h2>תמלול וסיכום</h2>
-    <pre id="summary-text"></pre>
+      <div style="font-size:14px; color:gray; text-align:right; margin-bottom:10px;">סיכום התוכן של הקובץ שמע שהועלה</div>
+    <div id="summary-text"></div>
     <button id="download-btn">הורד כ‑PDF</button>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="upload.js"></script>
+  <!-- jsPDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- html2canvas -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- hebrew fonts -->
+  <script src="font-loader.js"></script>
+
+  # use upload.js for real time testing and local_upload.js for local testing
+  <script src="local_upload.js"></script>
 </body>
 </html>
-
-

@@ -484,7 +484,11 @@ def summary_handler(event, context):
     if not file_name:
         return {
             "statusCode": 400,
-            "headers": {"Access-Control-Allow-Origin": "*"},
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "OPTIONS,GET"
+            },
             "body": json.dumps({"error": "Missing fileName query parameter"})
         }
 
@@ -504,9 +508,25 @@ def summary_handler(event, context):
             },
             "body": body
         }
+    except s3_client.exceptions.NoSuchKey:
+        # Summary file not ready yet
+        return {
+            "statusCode": 404,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "OPTIONS,GET"
+            },
+            "body": json.dumps({"error": "Summary not ready yet"})
+        }
     except Exception as e:
+        # Other unexpected errors
         return {
             "statusCode": 500,
-            "headers": {"Access-Control-Allow-Origin": "*"},
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "OPTIONS,GET"
+            },
             "body": json.dumps({"error": str(e)})
         }
