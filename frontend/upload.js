@@ -23,7 +23,7 @@ function updateStatus(message, isError = false) {
   console.log(">>> עדכון סטטוס:", message, "שגיאה?", isError);
 }
 
-async function fetchSummaryWithRetry(fileName, maxAttempts = 6, intervalMs = 20000) {
+async function fetchSummaryWithRetry(fileName, maxAttempts = 15, intervalMs = 20000) {
   let attempt = 0;
   while (attempt < maxAttempts) {
     attempt++;

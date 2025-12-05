@@ -24,6 +24,9 @@ import logging
 # pip install google-genai (or google-generativeai depending on your chosen SDK)
 from google import genai
 import json, re
+from amazon_transcribe.client import TranscribeStreamingClient
+from amazon_transcribe.handlers import TranscriptResultStreamHandler
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -81,6 +84,10 @@ def _infer_media_format(key: str) -> str:
     return mapping.get(ext, ext)
 
 def _transcription_exists(bucket: str, key: str) -> bool:
+    """
+    בדיקה אם כבר קיים תמלול עבור קובץ שמע מסוים.
+    מחפש לפי שם הקובץ המקורי תחת transcriptions/<base_name>.json
+    """
     base_name = key.split("/")[-1]
     transcript_key = f"transcriptions/{base_name}.json"
     try:
@@ -91,11 +98,59 @@ def _transcription_exists(bucket: str, key: str) -> bool:
             return False
         raise
 
+
+
+async def _start_streaming_transcribe(bucket: str, key: str) -> str:
+    # הורדת הקובץ מ-S3
+    obj = s3_client.get_object(Bucket=bucket, Key=key)
+    audio_bytes = obj["Body"].read()
+
+    client = TranscribeStreamingClient(region="us-east-1")
+    stream = await client.start_stream_transcription(
+        language_code="he-IL",
+        media_sample_rate_hz=16000,
+        media_encoding="pcm"
+    )
+
+    async def write_chunks():
+        # כאן צריך לחתוך את audio_bytes ל-chunks ולשלוח
+        await stream.input_stream.send_audio_event(audio_chunk=audio_bytes)
+        await stream.input_stream.end_stream()
+
+    async def read_results():
+        transcript = []
+        async for event in stream.output_stream:
+            if event.transcript_event:
+                for result in event.transcript_event.transcript.results:
+                    if not result.is_partial:
+                        transcript.append(result.alternatives[0].transcript)
+        return " ".join(transcript)
+
+    await asyncio.gather(write_chunks(), read_results())
+    final_text = await read_results()
+
+    # כתיבה ל-S3 כמו בקוד הקיים
+    base_name = key.split("/")[-1]
+    out_key = f"transcriptions/{base_name}.json"
+    s3_client.put_object(
+        Bucket=bucket,
+        Key=out_key,
+        Body=json.dumps({"results": {"transcripts": [{"transcript": final_text}]}}).encode("utf-8"),
+        ContentType="application/json"
+    )
+    return final_text
+
 def _start_transcribe_job(bucket: str, key: str) -> str:
-    """Start an asynchronous Transcribe job writing output JSON to the same bucket."""
-    job_name = f"gemini-transcribe-{uuid.uuid4()}"
+    """
+    מפעיל Job חדש ב־Transcribe עבור קובץ שמע.
+    שומר את התמלול תמיד תחת transcriptions/<base_name>.json
+    """
+    job_name = f"gemini-transcribe-{uuid.uuid4()}"  # שם ייחודי ל־Job
     media_uri = f"s3://{bucket}/{key}"
     media_format = _infer_media_format(key)
+
+    base_name = key.split("/")[-1]
+    out_key = f"transcriptions/{base_name}.json"
 
     transcribe_client.start_transcription_job(
         TranscriptionJobName=job_name,
@@ -103,10 +158,9 @@ def _start_transcribe_job(bucket: str, key: str) -> str:
         MediaFormat=media_format,
         LanguageCode=TRANSCRIBE_LANGUAGE,
         OutputBucketName=INPUT_BUCKET_NAME,
-        OutputKey=f"transcriptions/{job_name}.json"  # הוספה חדשה
+        OutputKey=out_key
     )
     return job_name
-
 
 def _wait_for_transcribe(job_name: str, timeout_sec: int = 600, poll_sec: int = 5) -> Optional[dict]:
     """
@@ -163,12 +217,31 @@ def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
 
     # Prompt: ask for structured JSON output with sections and bullets in Hebrew.
     prompt = (
-        "נתח את התמליל והחזר תקציר מובנה בפורמט JSON.\n"
-        "ה‑JSON חייב להיות אובייקט עם מפתח יחיד בשם 'sections' שערכו רשימה של אובייקטים.\n"
-        "כל אובייקט חייב לכלול 'title' (מחרוזת בעברית) ו‑'bullets' (מערך של מחרוזות בעברית).\n"
-        "אל תוסיף טקסט נוסף מחוץ ל‑JSON. דוגמה:\n"
-        '{ "sections": [ { "title": "נושא א", "bullets": ["נקודה1","נקודה2"] },'
-        ' { "title": "נושא ב", "bullets": ["נקודה1"] } ] }\n\n'
+        "אתה מקבל תמליל של אינטראקציה אנושית: פגישה, שיעור, הרצאה או שיחת טלפון.\n"
+        "אנא הפק תקציר מובנה בפורמט JSON בלבד.\n"
+        "ה‑JSON חייב להיות אובייקט עם המפתחות הבאים:\n"
+        "- sections: רשימה של אובייקטים, כל אחד עם 'title' בעברית ו‑'bullets' (מערך נקודות בעברית).\n"
+        "- participants: רשימת שמות או תפקידים אם מופיעים בתמליל. אם לא מופיעים שמות, השתמש ב'דובר א', 'דובר ב'.\n"
+        "- decisions: החלטות או הסכמות שהתקבלו.\n"
+        "- action_items: משימות להמשך או פעולות שסוכמו.\n"
+        "- questions: שאלות שעלו.\n\n"
+        "הוראות מותאמות לפי סוג התמליל:\n"
+        "- אם מדובר בשיחת טלפון: התמקד בזיהוי הדוברים, בהסכמות קצרות, בשאלות ישירות ובמשימות פשוטות.\n"
+        "- אם מדובר בפגישה: התמקד בזיהוי משתתפים, נושאים מרכזיים, החלטות רשמיות ומשימות להמשך.\n"
+        "- אם מדובר בהרצאה או שיעור: התמקד בנושאים שהוסברו, דוגמאות שהובאו, שאלות תלמידים/קהל, והמלצות להמשך לימוד.\n"
+        "- אם לא ניתן לזהות את סוג התמליל: הפק סיכום כללי לפי המבנה הנדרש.\n\n"
+        "אל תוסיף טקסט נוסף מחוץ ל‑JSON.\n"
+        "דוגמה:\n"
+        '{\n'
+        '  "sections": [\n'
+        '    { "title": "נושא א", "bullets": ["נקודה1","נקודה2"] },\n'
+        '    { "title": "נושא ב", "bullets": ["נקודה1"] }\n'
+        '  ],\n'
+        '  "participants": ["דובר א","דובר ב"],\n'
+        '  "decisions": ["הוסכם להיפגש ביום ראשון"],\n'
+        '  "action_items": ["דובר א ישלח מסמך","דובר ב יבדוק זמינות"],\n'
+        '  "questions": ["מתי הפגישה הבאה?"]\n'
+        '}\n\n'
         "תמליל:\n"
         f"{text}\n"
     )
