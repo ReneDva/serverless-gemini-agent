@@ -1,0 +1,15 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "rene-gemini-agent-stack-dev"
+s3_bucket = "rene-sam-artifacts-bucket"
+s3_prefix = "rene-gemini-agent-stack-dev"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+parameter_overrides = "InputBucketName=\"rene-gemini-agent-user-input-2025\" GeminiSecretName=\"my/gemini/all-env\" OutputPrefix=\"summaries/\" TranscribeRegion=\"us-east-1\" TranscribeLanguage=\"he-IL\" GeminiModel=\"gemini-2.5-flash\""
+image_repositories = []
+
+[default.global.parameters]
+region = "us-east-1"
