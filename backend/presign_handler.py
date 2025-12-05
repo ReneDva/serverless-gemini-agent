@@ -44,7 +44,7 @@ def presign_handler(event, context):
             ClientMethod="put_object",
             Params={
                 "Bucket": INPUT_BUCKET_NAME,
-                "Key": file_name,
+                "Key": f"recordings/{file_name}",
                 "ContentType": content_type
             },
             ExpiresIn=3600,

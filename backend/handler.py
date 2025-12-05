@@ -80,6 +80,16 @@ def _infer_media_format(key: str) -> str:
     }
     return mapping.get(ext, ext)
 
+def _transcription_exists(bucket: str, key: str) -> bool:
+    base_name = key.split("/")[-1]
+    transcript_key = f"transcriptions/{base_name}.json"
+    try:
+        s3_client.head_object(Bucket=bucket, Key=transcript_key)
+        return True
+    except s3_client.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == "404":
+            return False
+        raise
 
 def _start_transcribe_job(bucket: str, key: str) -> str:
     """Start an asynchronous Transcribe job writing output JSON to the same bucket."""
@@ -93,6 +103,7 @@ def _start_transcribe_job(bucket: str, key: str) -> str:
         MediaFormat=media_format,
         LanguageCode=TRANSCRIBE_LANGUAGE,
         OutputBucketName=INPUT_BUCKET_NAME,
+        OutputKey=f"transcriptions/{job_name}.json"  # הוספה חדשה
     )
     return job_name
 
@@ -342,11 +353,11 @@ def _write_summary_to_s3(original_key: str, summary: dict):
 def agent_handler(event, context):
     """
     Lambda entrypoint. Handles S3 object creation events:
-    - Starts Transcribe
-    - Waits for completion
+    - Checks if transcript already exists under transcriptions/
+    - If not, starts Transcribe and waits for completion
     - Reads transcript
     - Summarizes with Gemini
-    - Writes summary JSON to S3
+    - Writes summary JSON to S3 under summaries/
     """
 
     log.info("Loaded ENV: INPUT_BUCKET=%s, MODEL=%s, REGION=%s",
@@ -377,48 +388,46 @@ def agent_handler(event, context):
             "body": json.dumps(f"Invalid S3 event: {str(e)}")
         }
 
-    # Start Transcribe
-    try:
-        job_name = _start_transcribe_job(bucket, key)
-        log.info("Transcribe job started: %s for s3://%s/%s", job_name, bucket, key)
-    except ClientError as e:
-        return {
-            "statusCode": 500,
-            "headers": {"Access-Control-Allow-Origin": "*"},
-            "body": json.dumps(f"Transcribe start error: {str(e)}")
-        }
+    # Ensure audio files are under recordings/
+    if not key.startswith("recordings/"):
+        log.warning("Unexpected key outside recordings/: %s", key)
 
-    # Wait for completion
-    try:
-        job = _wait_for_transcribe(job_name)
-        if job is None:
-            return {
-                "statusCode": 504,
-                "headers": {"Access-Control-Allow-Origin": "*"},
-                "body": json.dumps("Transcribe timed out")
-            }
-    except Exception as e:
-        return {
-            "statusCode": 500,
-            "headers": {"Access-Control-Allow-Origin": "*"},
-            "body": json.dumps(f"Transcribe failed: {str(e)}")
-        }
+    # Check if transcript already exists
+    base_name = key.split("/")[-1]
+    transcript_key = f"transcriptions/{base_name}.json"
 
-    # Read transcript
-    transcript_uri = job["Transcript"]["TranscriptFileUri"]
     try:
-        transcript_text = _read_transcript_from_s3(transcript_uri)
+        if _transcription_exists(bucket, key):
+            log.info("Transcript already exists for %s, skipping Transcribe", key)
+            obj = s3_client.get_object(Bucket=bucket, Key=transcript_key)
+            transcript_text = obj["Body"].read().decode("utf-8")
+        else:
+            job_name = _start_transcribe_job(bucket, key)
+            log.info("Transcribe job started: %s for s3://%s/%s", job_name, bucket, key)
+
+            job = _wait_for_transcribe(job_name)
+            if job is None:
+                return {
+                    "statusCode": 504,
+                    "headers": {"Access-Control-Allow-Origin": "*"},
+                    "body": json.dumps("Transcribe timed out")
+                }
+
+            transcript_uri = job["Transcript"]["TranscriptFileUri"]
+            transcript_text = _read_transcript_from_s3(transcript_uri)
+
         if not transcript_text.strip():
             return {
                 "statusCode": 200,
                 "headers": {"Access-Control-Allow-Origin": "*"},
                 "body": json.dumps("No transcript text found")
             }
+
     except Exception as e:
         return {
             "statusCode": 500,
             "headers": {"Access-Control-Allow-Origin": "*"},
-            "body": json.dumps(f"Read transcript error: {str(e)}")
+            "body": json.dumps(f"Transcribe error: {str(e)}")
         }
 
     # Metadata question (optional)
