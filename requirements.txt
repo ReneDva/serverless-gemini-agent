@@ -16,3 +16,4 @@ websockets==15.0.1
 pydantic==2.12.5
 pydantic_core==2.41.5
 amazon_transcribe==0.6.4
+toml==0.10.2

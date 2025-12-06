@@ -131,6 +131,7 @@ Resources:
 
   InputBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
     Properties:
       BucketName: !Ref InputBucketName
       AccessControl: Private
@@ -152,6 +153,7 @@ Resources:
             AllowedHeaders:
               - "*"
             MaxAge: 3000
+
 
   VoiceAgentFunction:
     Type: AWS::Serverless::Function
