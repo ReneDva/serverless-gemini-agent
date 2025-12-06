@@ -61,7 +61,7 @@ Resources:
       CompatibleRuntimes:
         - python3.12
 
-  ServerlessHttpApi:
+  MyServerlessHttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       CorsConfiguration:
@@ -98,13 +98,13 @@ Resources:
           Properties:
             Path: /presign
             Method: POST
-            ApiId: !Ref ServerlessHttpApi
+            ApiId: !Ref MyServerlessHttpApi
         PresignOptions:
           Type: HttpApi
           Properties:
             Path: /presign
             Method: OPTIONS
-            ApiId: !Ref ServerlessHttpApi
+            ApiId: !Ref MyServerlessHttpApi
 
   SummaryFunction:
     Type: AWS::Serverless::Function
@@ -121,13 +121,13 @@ Resources:
           Properties:
             Path: /summary
             Method: GET
-            ApiId: !Ref ServerlessHttpApi
+            ApiId: !Ref MyServerlessHttpApi
         ApiSummaryOptions:
           Type: HttpApi
           Properties:
             Path: /summary
             Method: OPTIONS
-            ApiId: !Ref ServerlessHttpApi
+            ApiId: !Ref MyServerlessHttpApi
 
   InputBucket:
     Type: AWS::S3::Bucket
@@ -243,11 +243,11 @@ Resources:
 Outputs:
   UploadApiUrl:
     Description: "HTTP API endpoint to request a pre-signed URL"
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/presign"
+    Value: !Sub "https://${MyServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/presign"
 
   SummaryApiUrl:
     Description: "HTTP API endpoint to fetch summaries"
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/summary"
+    Value: !Sub "https://${MyServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/summary"
 
   BucketName:
     Description: "S3 bucket name used for uploads and outputs"
