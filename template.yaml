@@ -57,7 +57,7 @@ Resources:
     Properties:
       LayerName: project-deps
       Description: "Common python deps for Gemini agent"
-      ContentUri: layer/
+      ContentUri: /layer
       CompatibleRuntimes:
         - python3.12
 
@@ -77,8 +77,8 @@ Resources:
   PresignFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: backend/presign_handler.presign_handler
-      CodeUri: .
+      Handler: presign_handler.presign_handler
+      CodeUri: backend/
       Description: "Generates pre-signed S3 PUT URLs for direct browser uploads"
       MemorySize: 128
       Timeout: 30
@@ -109,8 +109,8 @@ Resources:
   SummaryFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: backend/handler.summary_handler
-      CodeUri: .
+      Handler: handler.summary_handler
+      CodeUri: backend/
       Description: "Fetches summary JSON from S3 for a given fileName"
       Policies:
         - S3ReadPolicy:
@@ -134,7 +134,7 @@ Resources:
     DeletionPolicy: Delete
     Properties:
       BucketName: !Ref InputBucketName
-      AccessControl: Private
+      # AccessControl: Private
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -158,8 +158,8 @@ Resources:
   VoiceAgentFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: backend/handler.agent_handler
-      CodeUri: .
+      Handler: handler.agent_handler
+      CodeUri: backend/
       Description: "S3-triggered Lambda: start Transcribe, read transcript, call Gemini, write summary to S3"
       Policies:
         - S3ReadPolicy:

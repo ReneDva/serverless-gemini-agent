@@ -19,14 +19,9 @@ from botocore.exceptions import ClientError
 import os
 import sys
 import logging
-
-# Google GenAI (Gemini) SDK
-# pip install google-genai (or google-generativeai depending on your chosen SDK)
 from google import genai
 import json, re
-from amazon_transcribe.client import TranscribeStreamingClient
-from amazon_transcribe.handlers import TranscriptResultStreamHandler
-import asyncio
+
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -97,48 +92,6 @@ def _transcription_exists(bucket: str, key: str) -> bool:
         if e.response['Error']['Code'] == "404":
             return False
         raise
-
-
-
-async def _start_streaming_transcribe(bucket: str, key: str) -> str:
-    # הורדת הקובץ מ-S3
-    obj = s3_client.get_object(Bucket=bucket, Key=key)
-    audio_bytes = obj["Body"].read()
-
-    client = TranscribeStreamingClient(region="us-east-1")
-    stream = await client.start_stream_transcription(
-        language_code="he-IL",
-        media_sample_rate_hz=16000,
-        media_encoding="pcm"
-    )
-
-    async def write_chunks():
-        # כאן צריך לחתוך את audio_bytes ל-chunks ולשלוח
-        await stream.input_stream.send_audio_event(audio_chunk=audio_bytes)
-        await stream.input_stream.end_stream()
-
-    async def read_results():
-        transcript = []
-        async for event in stream.output_stream:
-            if event.transcript_event:
-                for result in event.transcript_event.transcript.results:
-                    if not result.is_partial:
-                        transcript.append(result.alternatives[0].transcript)
-        return " ".join(transcript)
-
-    await asyncio.gather(write_chunks(), read_results())
-    final_text = await read_results()
-
-    # כתיבה ל-S3 כמו בקוד הקיים
-    base_name = key.split("/")[-1]
-    out_key = f"transcriptions/{base_name}.json"
-    s3_client.put_object(
-        Bucket=bucket,
-        Key=out_key,
-        Body=json.dumps({"results": {"transcripts": [{"transcript": final_text}]}}).encode("utf-8"),
-        ContentType="application/json"
-    )
-    return final_text
 
 def _start_transcribe_job(bucket: str, key: str) -> str:
     """

@@ -1,19 +1,15 @@
-# pip install -r .\requirements.txt
+# pip install --upgrade -r .\requirements.txt
 #  python -m pip install  --upgrade -r .\requirements.txt -t .\layer\python\lib\python3.12\site-packages
 #  Compress-Archive -Path .\layer\* -DestinationPath .\layer.zip -Force
 
-boto3==1.41.5
-Flask==3.1.2
+boto3==1.42.4
 google-auth==2.43.0
 google-genai==1.52.0
 httpx==0.28.1
 requests==2.32.5
-python-dotenv==1.2.1
 PyYAML==6.0.3
 attrs==25.4.0
-tenacity==9.1.2
-websockets==15.0.1
+pydub==0.25.1
 pydantic==2.12.5
 pydantic_core==2.41.5
-amazon_transcribe==0.6.4
 toml==0.10.2

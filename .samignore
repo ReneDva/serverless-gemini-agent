@@ -1,0 +1,23 @@
+# Ignore virtual environment
+.venv/
+# Ignore IDE configs
+.idea/
+# Ignore tests and uploads
+tests/
+uploads/
+events/
+# Ignore environment and secrets files
+.env
+env.json
+env.example
+secrets_gemini.json
+cors.json
+# Ignore helper scripts not needed in Lambda
+deploy_full.py
+delete_all_resources.py
+save_to_secrets.py
+temp.py
+Generate-EnvJson.ps1
+README.md
+samconfig.toml
+template.yaml
