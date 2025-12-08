@@ -1,8 +1,8 @@
 const isLocal = false;
 
-const PRESIGN_ENDPOINT = isLocal ? "http://127.0.0.1:3000/presign" : "https://cbnok9mh96.execute-api.us-east-1.amazonaws.com/presign";
+const PRESIGN_ENDPOINT = isLocal ? "http://127.0.0.1:3000/presign" : "https://vs6c11e9p0.execute-api.us-east-1.amazonaws.com/presign";
 
-const SUMMARY_ENDPOINT = isLocal ? "http://127.0.0.1:3000/summary" : "https://cbnok9mh96.execute-api.us-east-1.amazonaws.com/summary";
+const SUMMARY_ENDPOINT = isLocal ? "http://127.0.0.1:3000/summary" : "https://vs6c11e9p0.execute-api.us-east-1.amazonaws.com/summary";
 
 console.log(">>> PRESIGN_ENDPOINT:", PRESIGN_ENDPOINT);
 console.log(">>> SUMMARY_ENDPOINT:", SUMMARY_ENDPOINT);
@@ -19,48 +19,86 @@ function updateStatus(message, isError = false) {
   console.log(">>> עדכון סטטוס:", message, "שגיאה?", isError);
 }
 
-async function fetchSummaryWithRetry(fileName, maxAttempts = 15, intervalMs = 20000) {
+async function fetchSummaryWithRetry(fileName, internalId = null) {
   let attempt = 0;
+  let maxAttempts = 15; // ברירת מחדל
+  let intervalMs = 20000; // ברירת מחדל 20 שניות
+
+  // נבנה את ה־URL לפי מה שיש לנו: אם יש internalId נעדיף אותו
+  let queryParam = internalId
+    ? `id=${encodeURIComponent(internalId)}`
+    : `fileName=${encodeURIComponent(fileName)}`;
+
   while (attempt < maxAttempts) {
     attempt++;
     console.log(`>>> ניסיון ${attempt} לקבלת summary עבור ${fileName}`);
+
     try {
-      const resp = await fetch(`${SUMMARY_ENDPOINT}?fileName=${encodeURIComponent(fileName)}`);
+      const resp = await fetch(`${SUMMARY_ENDPOINT}?${queryParam}`);
       console.log(">>> תשובת summary התקבלה. סטטוס:", resp.status);
 
-      if (resp.status === 404) {
-        updateStatus(`הסיכום עדיין בתהליך עיבוד... ניסיון ${attempt}/${maxAttempts}`, true);
-        console.warn(">>> Summary not ready yet (404)");
-        if (attempt < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, intervalMs));
-          continue;
-        } else {
-          throw new Error("הסיכום לא נוצר גם אחרי המתנה של 2 דקות.");
+      const data = await resp.json();
+
+      if (resp.status === 200) {
+        // סיכום מוכן
+        console.log(">>> נתוני summary:", data);
+        renderSummary(data);
+        updateStatus(`הסיכום התקבל בהצלחה עבור ${data.original_name || fileName}!`);
+        return;
+      }
+
+      if (resp.status === 202) {
+        // עדיין בתהליך – נציג סטטוס
+        const stage = data.stage || "לא ידוע";
+        const completed = data.completed_parts || 0;
+        const total = data.total_parts || "?";
+        const attemptsSoFar = data.attempts || attempt;
+
+        updateStatus(
+          `העיבוד נמשך... (${data.original_name || fileName}) שלב: ${stage}, חלקים שהושלמו: ${completed}/${total}, ניסיונות: ${attemptsSoFar}/${maxAttempts}`
+        );
+
+        // נעדכן את מספר הניסיונות המקסימלי ואת זמן ההמתנה לפי מספר החלקים
+        if (data.total_parts) {
+          maxAttempts = Math.max(15, data.total_parts * 5); // לדוגמה: 5 ניסיונות לכל חלק
+          if (data.total_parts > 10) intervalMs = 30000; // 30 שניות
+          if (data.total_parts > 20) intervalMs = 40000; // 40 שניות
         }
+
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+        continue;
       }
 
-      if (!resp.ok) {
-        const errorBody = await resp.text();
-        console.error(">>> גוף שגיאה מהשרת:", errorBody);
-        throw new Error(`נכשל בקבלת סיכום: ${resp.status} ${errorBody}`);
+      if (resp.status === 500) {
+        // שגיאה בעיבוד
+        const stage = data.stage || "לא ידוע";
+        updateStatus(
+          `שגיאה בעיבוד (${data.original_name || fileName}) בשלב ${stage}: ${data.error || "לא ידוע"}\n${JSON.stringify(data.details || {})}`,
+          true
+        );
+        return;
       }
 
-      const summaryData = await resp.json();
-      console.log(">>> נתוני summary:", summaryData);
-      renderSummary(summaryData);
-      updateStatus("הסיכום התקבל בהצלחה!");
-      return; // יציאה מוצלחת
+      if (resp.status === 404) {
+        updateStatus(`העיבוד עדיין לא התחיל עבור ${data.original_name || fileName}... ניסיון ${attempt}/${maxAttempts}`, true);
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+        continue;
+      }
+
+      // כל מקרה אחר
+      updateStatus(`נכשל בקבלת סיכום: ${resp.status}`, true);
+      return;
+
     } catch (err) {
       console.error(">>> שגיאה בניסיון קבלת summary:", err);
-      if (attempt >= maxAttempts) {
-        updateStatus(`נכשל בקבלת סיכום אחרי ${maxAttempts} ניסיונות: ${err.message}`, true);
-        return;
-      } else {
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
-      }
+      updateStatus(`שגיאה: ${err.message}`, true);
+      return;
     }
   }
+
+  updateStatus(`העיבוד לא הסתיים אחרי ${maxAttempts} ניסיונות.`, true);
 }
+
 
 // Extract metadata from raw string
 function parseMetadata(rawText) {
@@ -78,36 +116,63 @@ function parseMetadata(rawText) {
 }
 
 // Render summary content into the DOM
-function renderSummary(summaryData) {
-    let html = "";
-
-    if (summaryData.sections) {
-        summaryData.sections.forEach(section => {
-            html += `<h3 style="margin-top:20px; font-weight:bold;">${section.title}</h3>`;
-            html += "<ul>";
-            section.bullets.forEach(bullet => {
-                html += `<li>${bullet}</li>`;
-            });
-            html += "</ul>";
-        });
+function extractJsonFromRaw(rawText) {
+  // חיפוש בלוק json בתוך הטקסט
+  const match = rawText.match(/```json([\s\S]*?)```/);
+  if (match) {
+    try {
+      return JSON.parse(match[1]);
+    } catch (e) {
+      console.error("Failed to parse JSON from raw:", e);
     }
-
-    // Metadata filtering and translation
-    if (summaryData.raw) {
-        const meta = parseMetadata(summaryData.raw);
-        html += `<div style="font-size:10px; color:gray; text-align:right; margin-top:20px;">`;
-        if (meta.model_version) html += `גרסת מודל: ${meta.model_version}<br>`;
-        if (meta.response_id) html += `מזהה תשובה: ${meta.response_id}<br>`;
-        if (meta.total_token_count) html += `מספר טוקנים: ${meta.total_token_count}<br>`;
-        html += `</div>`;
-    }
-
-    summaryText.innerHTML = html;
-    document.getElementById("summary-container").style.display = "block";
-
-    // שמירה גלובלית לשימוש ב-PDF
-    window.currentSummaryData = summaryData;
+  }
+  return null;
 }
+
+function renderSummary(summaryData) {
+  let html = "";
+
+  // אם יש sections ישירות
+  if (summaryData.sections) {
+    summaryData.sections.forEach(section => {
+      html += `<h3 style="margin-top:20px; font-weight:bold;">${section.title}</h3>`;
+      html += "<ul>";
+      section.bullets.forEach(bullet => {
+        html += `<li>${bullet}</li>`;
+      });
+      html += "</ul>";
+    });
+  }
+
+  // אם יש raw – ננסה לחלץ ממנו JSON
+  if (summaryData.raw) {
+    const parsed = extractJsonFromRaw(summaryData.raw);
+    if (parsed && parsed.sections) {
+      parsed.sections.forEach(section => {
+        html += `<h3 style="margin-top:20px; font-weight:bold;">${section.title}</h3>`;
+        html += "<ul>";
+        section.bullets.forEach(bullet => {
+          html += `<li>${bullet}</li>`;
+        });
+        html += "</ul>";
+      });
+    }
+
+    // מטא־דאטה
+    const meta = parseMetadata(summaryData.raw);
+    html += `<div style="font-size:10px; color:gray; text-align:right; margin-top:20px;">`;
+    if (meta.model_version) html += `גרסת מודל: ${meta.model_version}<br>`;
+    if (meta.response_id) html += `מזהה תשובה: ${meta.response_id}<br>`;
+    if (meta.total_token_count) html += `מספר טוקנים: ${meta.total_token_count}<br>`;
+    html += `</div>`;
+  }
+
+  document.getElementById("summary-text").innerHTML = html;
+  document.getElementById("summary-container").style.display = "block";
+
+  window.currentSummaryData = summaryData;
+}
+
 
 
 uploadBtn.addEventListener('click', async () => {

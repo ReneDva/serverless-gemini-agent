@@ -36,8 +36,8 @@ Parameters:
 Globals:
   Function:
     Runtime: python3.12
-    Timeout: 120
-    MemorySize: 1024
+    Timeout: 320
+    MemorySize: 2048
     Tracing: Active
     Layers:
       - !Ref ProjectDepsLayer

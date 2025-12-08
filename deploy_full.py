@@ -17,7 +17,7 @@ Usage examples:
   py deploy_full.py --profile admin-manager --region us-east-1
   py deploy_full.py --role-arn arn:aws:iam::123456789012:role/AdminRole
 """
-
+import time
 import argparse
 import subprocess
 import sys
@@ -177,6 +177,22 @@ def get_stack_outputs(cf_client, stack_name):
         return {}
     outputs = stacks[0].get("Outputs", [])
     return {o["OutputKey"]: o["OutputValue"] for o in outputs}
+
+def create_base_prefixes(s3_client, bucket):
+    """Create base prefixes (recordings/, summaries/, transcriptions/) as empty objects."""
+    prefixes = ["recordings/", "summaries/", "transcriptions/"]
+    for p in prefixes:
+        key = p  # S3 "folder" key
+        try:
+            s3_client.put_object(Bucket=bucket, Key=key)
+            print(f"Created base prefix: s3://{bucket}/{key}")
+        except ClientError as e:
+            print(f"Failed to create prefix {key}: {e}")
+
+def check_bucket_notifications(s3_client, bucket):
+    conf = s3_client.get_bucket_notification_configuration(Bucket=bucket)
+    print("Bucket notification configuration:", json.dumps(conf, indent=2))
+    # אפשר להוסיף לוגיקה שבודקת שיש prefix recordings/
 
 
 def patch_upload_js(upload_js_path, presign_url, summary_url, backup=True):
@@ -417,6 +433,10 @@ def main():
     outputs = get_stack_outputs(cf, stack_name)
     print("Stack outputs:", outputs)
 
+    # 2b) Create base prefixes in input bucket
+    create_base_prefixes(s3, input_bucket)
+    check_bucket_notifications(s3, input_bucket)
+
     # 3) Patch upload.js with API endpoints
     presign_url = outputs.get("UploadApiUrl")
     summary_url = outputs.get("SummaryApiUrl")
@@ -440,6 +460,44 @@ def main():
         print("Frontend website URL:", website_url)
 
     print("Deployment complete. Frontend should be available via S3 website endpoint or CloudFront if configured.")
+
+    # 7) Invoke Lambda once to ensure log group exists
+    lambda_client = session.client("lambda")
+    voice_fn_arn = outputs.get("VoiceAgentFunctionArn")
+    if voice_fn_arn:
+        print("Invoking Lambda once to create log group...")
+        try:
+            resp = lambda_client.invoke(
+                FunctionName=voice_fn_arn,
+                InvocationType="RequestResponse",  # מחכה לתוצאה
+                Payload=json.dumps({
+                      "Records": [
+                        {
+                          "s3": {
+                            "bucket": {"name": "rene-gemini-agent-user-input-2025"},
+                            "object": {"key": "recordings/user_recording_123.m4a"}
+                          }
+                        }
+                      ]
+                    }
+                ).encode("utf-8")
+                            )
+            print("Test invoke sent, status:", resp.get("StatusCode"))
+        except ClientError as e:
+            print("Failed to invoke Lambda:", e)
+
+        # המתנה קצרה כדי לאפשר ל־CloudWatch ליצור את הלוג־גרופ
+
+        time.sleep(5)
+
+        # 8) Tail logs live
+        log_group_name = f"/aws/lambda/{voice_fn_arn.split(':')[-1]}"
+        print(f"Starting live log tail for {log_group_name}...")
+        subprocess.Popen([
+            "aws", "logs", "tail", log_group_name,
+            "--follow", "--region", region,
+            "--profile", args.profile or "default"
+        ])
 
 
 if __name__ == "__main__":

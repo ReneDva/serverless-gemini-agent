@@ -104,16 +104,29 @@
   <script src="upload.js"></script>
 
   <script>
-    // דוגמה: הצגת הקופסה רק אחרי שיש סיכום
-    function showSummary(text) {
-      const summaryText = document.getElementById("summary-text");
-      const summaryContainer = document.getElementById("summary-container");
-      summaryText.innerHTML = text;
-      summaryContainer.style.display = "block";
-    }
+      // פונקציה שמציגה את הקונטיינר עם הסיכום
+      function showSummary(text) {
+        const summaryText = document.getElementById("summary-text");
+        const summaryContainer = document.getElementById("summary-container");
+        summaryText.innerHTML = text;
+        summaryContainer.style.display = "block";
+      }
 
-    // קריאה לדוגמה (בפועל upload.js יפעיל את זה אחרי קבלת סיכום מהשרת)
-    // showSummary("זהו סיכום לדוגמה של הקובץ שהועלה.");
+      // פונקציה שמסתירה את הקונטיינר בתחילת כל העלאה
+      function hideSummary() {
+        const summaryText = document.getElementById("summary-text");
+        const summaryContainer = document.getElementById("summary-container");
+        summaryText.innerHTML = "";
+        summaryContainer.style.display = "none";
+      }
+
+      // מאזין לכפתור ההעלאה – בכל לחיצה נסתיר את הקונטיינר
+      document.getElementById("upload-btn").addEventListener("click", () => {
+        hideSummary();
+        updateStatus("מתחיל העלאה ועיבוד..."); // דוגמה לעדכון סטטוס
+        // כאן יופעל הקוד של upload.js שמבצע את ההעלאה בפועל
+      });
   </script>
+
 </body>
 </html>
