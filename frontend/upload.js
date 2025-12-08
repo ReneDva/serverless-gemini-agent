@@ -1,8 +1,8 @@
 const isLocal = false;
 
-const PRESIGN_ENDPOINT = isLocal ? "http://127.0.0.1:3000/presign" : "https://jabjo1766c.execute-api.us-east-1.amazonaws.com/presign";
+const PRESIGN_ENDPOINT = isLocal ? "http://127.0.0.1:3000/presign" : "https://cbnok9mh96.execute-api.us-east-1.amazonaws.com/presign";
 
-const SUMMARY_ENDPOINT = isLocal ? "http://127.0.0.1:3000/summary" : "https://jabjo1766c.execute-api.us-east-1.amazonaws.com/summary";
+const SUMMARY_ENDPOINT = isLocal ? "http://127.0.0.1:3000/summary" : "https://cbnok9mh96.execute-api.us-east-1.amazonaws.com/summary";
 
 console.log(">>> PRESIGN_ENDPOINT:", PRESIGN_ENDPOINT);
 console.log(">>> SUMMARY_ENDPOINT:", SUMMARY_ENDPOINT);

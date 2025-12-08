@@ -57,7 +57,7 @@ Resources:
     Properties:
       LayerName: project-deps
       Description: "Common python deps for Gemini agent"
-      ContentUri: /layer
+      ContentUri: layer/
       CompatibleRuntimes:
         - python3.12
 
@@ -109,7 +109,7 @@ Resources:
   SummaryFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: handler.summary_handler
+      Handler: handler2_0.summary_handler
       CodeUri: backend/
       Description: "Fetches summary JSON from S3 for a given fileName"
       Policies:
@@ -158,7 +158,7 @@ Resources:
   VoiceAgentFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: handler.agent_handler
+      Handler: handler2_0.agent_handler
       CodeUri: backend/
       Description: "S3-triggered Lambda: start Transcribe, read transcript, call Gemini, write summary to S3"
       Policies:

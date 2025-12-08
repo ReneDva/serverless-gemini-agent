@@ -1,4 +1,4 @@
-# handler2.0.py
+# handler2_0.py
 # Serverless Voice Agent with audio splitting, noise reduction, parallel transcription, and merge
 
 import os, json, uuid, time, urllib.parse, logging, re
@@ -8,9 +8,13 @@ from botocore.exceptions import ClientError
 from google import genai
 import math
 from pydub import AudioSegment, effects
+import os
+os.environ["PATH"] += ":/opt/bin"
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger(__name__)
+
+log = logging.getLogger()
+log.setLevel(logging.INFO)
+
 
 # --- Environment variables ---
 INPUT_BUCKET_NAME = os.environ.get("INPUT_BUCKET_NAME")
@@ -24,16 +28,7 @@ session = boto3.session.Session()
 s3_client = session.client("s3", region_name="us-east-1")
 transcribe_client = session.client("transcribe", region_name=TRANSCRIBE_REGION)
 
-def split_audio(local_path: str, chunk_length_ms: int = 120000) -> list:
-    """פיצול קובץ אודיו לקטעים של 2 דקות"""
-    audio = AudioSegment.from_file(local_path)
-    chunks = []
-    for i in range(0, len(audio), chunk_length_ms):
-        chunk = audio[i:i+chunk_length_ms]
-        out_path = f"/tmp/chunk_{i//chunk_length_ms}.wav"
-        chunk.export(out_path, format="wav")
-        chunks.append(out_path)
-    return chunks
+
 
 
 
@@ -44,16 +39,42 @@ def _parse_s3_event(event) -> Tuple[str, str]:
     key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
     return bucket, key
 
+def split_audio(local_path: str, chunk_length_ms: int = 120000) -> list:
+    """פיצול קובץ אודיו לקטעים של עד 2 דקות"""
+    audio = AudioSegment.from_file(local_path)
+    if len(audio) <= chunk_length_ms:
+        out_path = f"/tmp/chunk_0.wav"
+        audio.export(out_path, format="wav")
+        log.info("קובץ קצר – נשמר כיחידה אחת באורך %dms", len(audio))
+        return [out_path]
+
+    chunks = []
+    for i in range(0, len(audio), chunk_length_ms):
+        chunk = audio[i:i+chunk_length_ms]
+        out_path = f"/tmp/chunk_{i//chunk_length_ms}.wav"
+        chunk.export(out_path, format="wav")
+        chunks.append(out_path)
+        log.info("נוצר chunk %d באורך %dms", i//chunk_length_ms, len(chunk))
+    return chunks
+
 def _infer_media_format(key: str) -> str:
     ext = key.split(".")[-1].lower()
     return {"wav":"wav","mp3":"mp3","flac":"flac","ogg":"ogg","mp4":"mp4","m4a":"mp4"}.get(ext, ext)
 
 def _start_transcribe_job(bucket: str, key: str) -> str:
+    # Build job name and media URI
     job_name = f"gemini-transcribe-{uuid.uuid4()}"
     media_uri = f"s3://{bucket}/{key}"
     media_format = _infer_media_format(key)
-    base_name = key.split("/")[-1]
-    out_key = f"transcriptions/{base_name}.json"
+
+    # Preserve the full chunk path in the output key so transcripts are grouped per original file
+    prefix = key.rsplit("/", 1)[0]   # e.g. "chunks/<base_name>"
+    file_name = key.split("/")[-1]   # e.g. "part_000.wav"
+    out_key = f"transcriptions/{prefix}/{file_name}.json"
+
+    log.info("Starting Transcribe job: job_name=%s, media_uri=%s, format=%s, output_key=%s",
+             job_name, media_uri, media_format, out_key)
+
     transcribe_client.start_transcription_job(
         TranscriptionJobName=job_name,
         Media={"MediaFileUri": media_uri},
@@ -62,7 +83,28 @@ def _start_transcribe_job(bucket: str, key: str) -> str:
         OutputBucketName=INPUT_BUCKET_NAME,
         OutputKey=out_key
     )
+    log.info("Transcribe job %s submitted successfully", job_name)
     return job_name
+
+# --- NEW: merge transcripts ---
+def _merge_transcripts(bucket: str, prefix: str) -> str:
+    """Merge all transcript parts under transcriptions/prefix_* into one string"""
+    log.info("Starting merge of transcripts under prefix: transcriptions/%s", prefix)
+    resp = s3_client.list_objects_v2(Bucket=bucket, Prefix=f"transcriptions/{prefix}")
+    texts = []
+    for idx, obj in enumerate(sorted(resp.get("Contents", []), key=lambda x: x["Key"])):
+        log.info("Reading transcript file #%d from S3: %s", idx, obj["Key"])
+        body = s3_client.get_object(Bucket=bucket, Key=obj["Key"])["Body"].read().decode("utf-8")
+        payload = json.loads(body)
+        t = payload.get("results", {}).get("transcripts", [])
+        if t:
+            text = t[0].get("transcript", "")
+            log.info("Transcript #%d loaded from %s – length %d characters", idx, obj["Key"], len(text))
+            texts.append(text)
+    merged = "\n".join(texts)
+    log.info("Merge complete – merged %d transcripts, total length %d characters", len(texts), len(merged))
+    return merged
+
 
 def _wait_for_transcribe(job_name: str, timeout_sec: int = 600, poll_sec: int = 5) -> Optional[dict]:
     start = time.time()
@@ -84,24 +126,6 @@ def _read_transcript_from_s3(transcript_uri: str) -> str:
     payload = json.loads(data)
     transcripts = payload.get("results", {}).get("transcripts", [])
     return transcripts[0].get("transcript","") if transcripts else ""
-
-# --- NEW: merge transcripts ---
-def _merge_transcripts(bucket: str, prefix: str) -> str:
-    """Merge all transcript parts under transcriptions/prefix_* into one string"""
-    resp = s3_client.list_objects_v2(Bucket=bucket, Prefix=f"transcriptions/{prefix}")
-    texts = []
-    for obj in sorted(resp.get("Contents", []), key=lambda x: x["Key"]):
-        body = s3_client.get_object(Bucket=bucket, Key=obj["Key"])["Body"].read().decode("utf-8")
-        payload = json.loads(body)
-        t = payload.get("results", {}).get("transcripts", [])
-        if t: texts.append(t[0].get("transcript",""))
-    return "\n".join(texts)
-
-# --- Noise reduction helper ---
-def preprocess_audio(local_path: str, out_path: str):
-    sound = AudioSegment.from_file(local_path)
-    clean = effects.normalize(sound)  # בסיסי
-    clean.export(out_path, format="wav")
 
 # --- Gemini summarizer (כמו בקוד שלך) ---
 def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
@@ -301,9 +325,7 @@ def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
 
     return {"sections": sections, "raw": raw_text}
 
-
-
-
+# --- Noise reduction helper ---
 def preprocess_audio(local_path: str, out_path: str):
     """
     סינון רעשים בסיסי: נורמליזציה של עוצמת הקול והסרת שקטים קיצוניים.
@@ -317,40 +339,142 @@ def preprocess_audio(local_path: str, out_path: str):
     return out_path
 
 def agent_handler(event, context):
+    log.info("agent_handler invoked with event: %s", json.dumps(event))
+
+    # Parse S3 event
     bucket, key = _parse_s3_event(event)
-    base_name = key.split("/")[-1].rsplit(".",1)[0]
+    base_name = key.split("/")[-1].rsplit(".", 1)[0]
+    log.info("Parsed S3 event: bucket=%s, key=%s, base_name=%s", bucket, key, base_name)
 
-    # הורדת הקובץ ל־/tmp
+    # Download file to /tmp
     local_path = f"/tmp/{base_name}.wav"
+    log.info("Downloading original file from S3 to %s", local_path)
     s3_client.download_file(bucket, key, local_path)
+    log.info("Original file downloaded successfully")
 
-    # סינון רעשים בסיסי
+    # Noise reduction
     clean_path = f"/tmp/{base_name}_clean.wav"
+    log.info("Starting noise reduction: input=%s, output=%s", local_path, clean_path)
     preprocess_audio(local_path, clean_path)
+    log.info("Noise reduction complete, cleaned file saved at %s", clean_path)
 
-    # פיצול
+    # Split audio
+    log.info("Splitting audio file into chunks (max 2 minutes each)")
     chunk_paths = split_audio(clean_path)
+    if len(chunk_paths) == 1:
+        log.info("Audio is short – kept as a single chunk: %s", chunk_paths[0])
+    else:
+        log.info("Audio split into %d chunks: %s", len(chunk_paths), chunk_paths)
 
     transcripts = []
     for idx, chunk_path in enumerate(chunk_paths):
         part_key = f"chunks/{base_name}/part_{idx:03d}.wav"
+        log.info("[Chunk %d] Uploading to S3 with key %s", idx, part_key)
         s3_client.upload_file(chunk_path, bucket, part_key)
+        log.info("[Chunk %d] Upload completed", idx)
 
-        # תמלול לכל חלק
+        # Transcribe each chunk
+        log.info("[Chunk %d] Starting Transcribe job for %s", idx, part_key)
         job_name = _start_transcribe_job(bucket, part_key)
+        log.info("[Chunk %d] Transcribe job started: %s", idx, job_name)
+
         job = _wait_for_transcribe(job_name)
+        if not job or "TranscriptionJob" not in job:
+            log.error("Unexpected Transcribe response for job %s: %s", job_name, job)
+            raise RuntimeError("No TranscriptionJob in response")
+        status = job["TranscriptionJob"]["TranscriptionJobStatus"]
+        log.info("Transcribe job %s finished with status: %s", job_name, status)
+
         transcript_uri = job["Transcript"]["TranscriptFileUri"]
+        log.info("[Chunk %d] Fetching transcript from URI: %s", idx, transcript_uri)
         text = _read_transcript_from_s3(transcript_uri)
+        log.info("[Chunk %d] Transcript retrieved – length %d characters", idx, len(text))
         transcripts.append(text)
 
-    # מיזוג
+    # Merge transcripts
+    log.info("Merging %d transcripts into one full text", len(transcripts))
     full_text = "\n".join(transcripts)
+    log.info("Merged transcript complete – total length %d characters", len(full_text))
 
-    # סיכום עם Gemini
+    # Summarize with Gemini
+    log.info("Sending merged transcript to Gemini summarizer")
     summary = _gemini_summarize_and_answer(full_text)
-    out_key = f"{OUTPUT_PREFIX}{base_name}.summary.json"
-    s3_client.put_object(Bucket=bucket, Key=out_key,
-                         Body=json.dumps(summary, ensure_ascii=False).encode("utf-8"),
-                         ContentType="application/json")
+    log.info("Gemini summarizer returned summary with %d sections", len(summary.get("sections", [])))
 
-    return {"statusCode":200, "body":json.dumps({"status":"ok","summary_key":out_key}, ensure_ascii=False)}
+    # Write summary to S3
+    out_key = f"{OUTPUT_PREFIX}{base_name}.summary.json"
+    log.info("Writing summary JSON to S3: bucket=%s, key=%s", bucket, out_key)
+    s3_client.put_object(
+        Bucket=bucket,
+        Key=out_key,
+        Body=json.dumps(summary, ensure_ascii=False).encode("utf-8"),
+        ContentType="application/json"
+    )
+    log.info("Summary written successfully to S3")
+
+    return {
+        "statusCode": 200,
+        "body": json.dumps({"status": "ok", "summary_key": out_key}, ensure_ascii=False)
+    }
+
+def summary_handler(event, context):
+    params = event.get("queryStringParameters") or {}
+    file_name = params.get("fileName")
+    if not file_name:
+        return {
+            "statusCode": 400,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "OPTIONS,GET"
+            },
+            "body": json.dumps({"error": "Missing fileName query parameter"})
+        }
+
+    out_key = f"{OUTPUT_PREFIX}{file_name}.summary.json"
+
+    try:
+        obj = s3_client.get_object(Bucket=INPUT_BUCKET_NAME, Key=out_key)
+        body = obj["Body"].read().decode("utf-8")
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "OPTIONS,GET"
+            },
+            "body": body
+        }
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            return {
+                "statusCode": 404,
+                "headers": {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type",
+                    "Access-Control-Allow-Methods": "OPTIONS,GET"
+                },
+                "body": json.dumps({"error": "Summary not ready yet"})
+            }
+        else:
+            return {
+                "statusCode": 500,
+                "headers": {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type",
+                    "Access-Control-Allow-Methods": "OPTIONS,GET"
+                },
+                "body": json.dumps({"error": str(e)})
+            }
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "OPTIONS,GET"
+            },
+            "body": json.dumps({"error": str(e)})
+        }
+
