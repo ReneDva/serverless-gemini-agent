@@ -62,10 +62,14 @@ pip install -r requirements.txt
 - **Individual Lambda handlers** with SAM Local (unit testing only, no external services emulation)
 
 ---
-
 ## ☁️ Deployment
 
 You can deploy manually with SAM or use the automation script `deploy_full.py`.
+
+> ⚠️ **Note:**  
+> - If you choose to deploy manually (without using the provided automation script), you must create the required **S3 buckets** in advance (for artifacts, input, and output).  
+> - After deployment, configure **static website hosting** for the frontend bucket and attach the necessary **bucket policies and CORS rules**.  
+> - You also need to **update the Lambda template (`template.yaml`)** with the correct **secret name** (matching the one you created in AWS Secrets Manager) and adjust the **default environment variables** to ensure the functions can access the Gemini API key and other configuration values.
 
 ### Example `samconfig.toml`
 ```toml
@@ -129,3 +133,4 @@ python save_to_secrets.py --secrets-file secrets_gemini.json --secret-name my/ge
 - Processing is **parallelized** — multiple audio files can be transcribed and summarized simultaneously.  
 - Summaries are stored in S3 and exposed via API.  
 - Full integration testing requires deployment to AWS with a valid Gemini key.  
+
