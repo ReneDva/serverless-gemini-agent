@@ -530,8 +530,6 @@ def agent_handler(event, context):
 
 
 
-
-
 def _find_internal_id_by_original(bucket: str, original_name: str) -> str | None:
     """
     חיפוש internal_id בקבצי statuses/ או manifests/ לפי original_name.
