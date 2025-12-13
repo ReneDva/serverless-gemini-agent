@@ -9,8 +9,8 @@ uploads/
 frontend/node_modules/
 frontend/.idea/
 frontend/upload.js.bak
-
-
+backend/__pycache__/
+       
 # Ignore all dependencies packages inside venv
 .venv/
 
