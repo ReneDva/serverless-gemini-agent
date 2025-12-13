@@ -60,8 +60,7 @@ def _infer_media_format(key: str) -> str:
     ext = key.split(".")[-1].lower()
     return {"wav":"wav","mp3":"mp3","flac":"flac","ogg":"ogg","mp4":"mp4","m4a":"mp4"}.get(ext, ext)
 
-# --- Gemini summarizer (כמו בקוד שלך) ---
-def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
+# --- Gemini summarizer ---
     """
     Request a structured summary from Gemini and return sections with titles and bullets.
     Returns: { "sections": [ {"title": str, "bullets": [str, ...]}, ... ], "raw": str }
@@ -256,6 +255,200 @@ def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
 
     sections = _heuristic_parse(raw_text)
 
+    return {"sections": sections, "raw": raw_text}
+
+def _gemini_summarize_and_answer(text: str, question: str = "") -> dict:
+    """
+    Request a structured summary from Gemini and return sections with titles and bullets.
+    Returns: { "sections": [...], "raw": str }
+    """
+    log.info("[Gemini] preparing request to Gemini model=%s prompt_length=%d", GEMINI_MODEL, len(text) if text else 0)
+
+    if not GEMINI_API_KEY:
+        log.error("[Gemini][ERROR] GEMINI_API_KEY is not set in environment")
+        raise RuntimeError("Missing GEMINI_API_KEY")
+
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    # Build prompt (אם הטקסט ארוך מאוד, חיתוך בסיסי למניעת בעיות)
+    max_prompt_chars = 200000  # ערך שמרני; ניתן לכוונן
+    prompt_text = text
+    if len(prompt_text) > max_prompt_chars:
+        log.warning("[Gemini] input text too long (%d chars), truncating to %d chars", len(prompt_text), max_prompt_chars)
+        prompt_text = prompt_text[:max_prompt_chars]
+
+    # Prompt: ask for structured JSON output with sections and bullets in Hebrew.
+    prompt = (
+        "אתה מקבל תמליל של אינטראקציה אנושית: פגישה, שיעור, הרצאה או שיחת טלפון.\n"
+        "אנא הפק תקציר מובנה בפורמט JSON בלבד.\n"
+        "ה‑JSON חייב להיות אובייקט עם המפתחות הבאים:\n"
+        "- sections: רשימה של אובייקטים, כל אחד עם 'title' בעברית ו‑'bullets' (מערך נקודות בעברית).\n"
+        "- participants: רשימת שמות או תפקידים אם מופיעים בתמליל. אם לא מופיעים שמות, השתמש ב'דובר א', 'דובר ב'.\n"
+        "- decisions: החלטות או הסכמות שהתקבלו.\n"
+        "- action_items: משימות להמשך או פעולות שסוכמו.\n"
+        "- questions: שאלות שעלו.\n\n"
+        "הוראות מותאמות לפי סוג התמליל:\n"
+        "- אם מדובר בשיחת טלפון: התמקד בזיהוי הדוברים, בהסכמות קצרות, בשאלות ישירות ובמשימות פשוטות.\n"
+        "- אם מדובר בפגישה: התמקד בזיהוי משתתפים, נושאים מרכזיים, החלטות רשמיות ומשימות להמשך.\n"
+        "- אם מדובר בהרצאה או שיעור: התמקד בנושאים שהוסברו, דוגמאות שהובאו, שאלות תלמידים/קהל, והמלצות להמשך לימוד.\n"
+        "- אם לא ניתן לזהות את סוג התמליל: הפק סיכום כללי לפי המבנה הנדרש.\n\n"
+        "אל תוסיף טקסט נוסף מחוץ ל‑JSON.\n"
+        "דוגמה:\n"
+        '{\n'
+        '  "sections": [\n'
+        '    { "title": "נושא א", "bullets": ["נקודה1","נקודה2"] },\n'
+        '    { "title": "נושא ב", "bullets": ["נקודה1"] }\n'
+        '  ],\n'
+        '  "participants": ["דובר א","דובר ב"],\n'
+        '  "decisions": ["הוסכם להיפגש ביום ראשון"],\n'
+        '  "action_items": ["דובר א ישלח מסמך","דובר ב יבדוק זמינות"],\n'
+        '  "questions": ["מתי הפגישה הבאה?"]\n'
+        '}\n\n'
+        "תמליל:\n"
+        f"{prompt_text}\n"
+    )
+    
+
+    # קריאה ל־API עם טיפול בשגיאות
+    try:
+        result = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config={"temperature": 0.0}
+        )
+        log.info("[Gemini] request sent, received response object type=%s", type(result))
+    except Exception as e:
+        log.exception("[Gemini][ERROR] API call failed: %s", e)
+        raise
+
+    # Extract raw text from the SDK response using common response shapes.
+    def _extract_raw_text(res):
+        if hasattr(res, "output_text"):
+            try:
+                t = getattr(res, "output_text")
+                if t:
+                    return t
+            except Exception:
+                pass
+        out = getattr(res, "output", None)
+        if out:
+            try:
+                first = out[0]
+                if hasattr(first, "content"):
+                    c = first.content
+                    if isinstance(c, (list, tuple)) and len(c) > 0:
+                        texts = []
+                        for part in c:
+                            if hasattr(part, "text"):
+                                texts.append(getattr(part, "text") or "")
+                            elif isinstance(part, dict) and "text" in part:
+                                texts.append(part["text"] or "")
+                        joined = "\n".join([t for t in texts if t])
+                        if joined:
+                            return joined
+                if hasattr(first, "text"):
+                    return getattr(first, "text") or ""
+                if isinstance(first, dict) and "text" in first:
+                    return first["text"] or ""
+            except Exception:
+                pass
+        try:
+            return str(res)
+        except Exception:
+            return ""
+
+    raw_text = _extract_raw_text(result)
+    log.info("[Gemini] raw_text length=%d", len(raw_text) if raw_text else 0)
+
+    # Try to parse JSON directly from the model output.
+    def _parse_json_from_text(s: str):
+        if not s:
+            return None
+        start = s.find("{")
+        end = s.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        candidate = s[start:end+1]
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict) and "sections" in parsed and isinstance(parsed["sections"], list):
+                sections = []
+                for sec in parsed["sections"]:
+                    title = sec.get("title", "").strip() if isinstance(sec, dict) else ""
+                    bullets = []
+                    if isinstance(sec, dict):
+                        b = sec.get("bullets", [])
+                        if isinstance(b, list):
+                            bullets = [str(x).strip() for x in b if x and str(x).strip()]
+                    sections.append({"title": title or "Untitled", "bullets": bullets})
+                return {"sections": sections}
+        except Exception as e:
+            log.debug("[Gemini] JSON parse attempt failed: %s", e)
+            return None
+        return None
+
+    parsed = _parse_json_from_text(raw_text)
+    if parsed:
+        log.info("[Gemini] parsed JSON successfully with %d sections", len(parsed["sections"]))
+        return {"sections": parsed["sections"], "raw": raw_text}
+
+    # Fallback: heuristically parse headings and bullets from plain text.
+    log.info("[Gemini] falling back to heuristic parse")
+    def _heuristic_parse(s: str):
+        lines = [ln.rstrip() for ln in s.splitlines()]
+        sections = []
+        current_title = None
+        current_bullets = []
+        heading_patterns = [
+            re.compile(r'^\s*#{1,6}\s*(.+)$'),
+            re.compile(r'^\s*([A-Zא-ת][\w\s\-]{2,60}):\s*$'),
+            re.compile(r'^\s*([A-Zא-ת][\w\s\-]{2,60})\s*$')
+        ]
+        bullet_re = re.compile(r'^\s*([-•*]\s+)(.+)$')
+        numbered_re = re.compile(r'^\s*\d+[\.\)]\s+(.+)$')
+        for ln in lines:
+            if not ln.strip():
+                continue
+            m = bullet_re.match(ln)
+            if m:
+                text = m.group(2).strip()
+                if current_title is None:
+                    current_title = "General"
+                current_bullets.append(text)
+                continue
+            m2 = numbered_re.match(ln)
+            if m2:
+                text = m2.group(1).strip()
+                if current_title is None:
+                    current_title = "General"
+                current_bullets.append(text)
+                continue
+            is_heading = False
+            for hp in heading_patterns:
+                mh = hp.match(ln)
+                if mh:
+                    if current_title or current_bullets:
+                        sections.append({"title": current_title or "General", "bullets": current_bullets})
+                    current_title = mh.group(1).strip()
+                    current_bullets = []
+                    is_heading = True
+                    break
+            if is_heading:
+                continue
+            if current_title:
+                current_bullets.append(ln.strip())
+            else:
+                current_title = "General"
+                current_bullets.append(ln.strip())
+        if current_title or current_bullets:
+            sections.append({"title": current_title or "General", "bullets": current_bullets})
+        for sec in sections:
+            sec["title"] = sec["title"].strip() if sec.get("title") else "Untitled"
+            sec["bullets"] = [b.strip() for b in sec.get("bullets", []) if b and b.strip()]
+        return sections
+
+    sections = _heuristic_parse(raw_text)
+    log.info("[Gemini] heuristic parse produced %d sections", len(sections))
     return {"sections": sections, "raw": raw_text}
 
 
@@ -508,25 +701,71 @@ def agent_handler(event, context):
     _put_json(bucket, merged_key, merged_payload)
     _update_status(bucket, internal_id, original_name, stage="merged", merged_key=merged_key)
 
-    # Summarize (שימוש בשם המקורי לסיכום)
-    summary = _gemini_summarize_and_answer(full_text)
-    out_key = f"{OUTPUT_PREFIX}{original_name}.summary.json"
-    s3_client.put_object(
-        Bucket=bucket,
-        Key=out_key,
-        Body=json.dumps(summary, ensure_ascii=False).encode("utf-8"),
-        ContentType="application/json"
-    )
-    _update_status(bucket, internal_id, original_name, stage="summarized", summary_key=out_key)
+    # Summarize (שימוש בשם המקורי לסיכום) - עם לוגים וטיפול בשגיאות
+    try:
+        log.info("[Summarize] starting summarize step for internal_id=%s original_name=%s", internal_id, original_name)
 
+        # בדיקה בסיסית על אורך הטקסט
+        merged_len = len(full_text) if full_text else 0
+        log.info("[Summarize] merged text length=%d chars", merged_len)
+        if merged_len == 0:
+            raise RuntimeError("Merged transcript is empty, nothing to summarize")
+
+        # עדכון סטטוס תחילת סיכום
+        _update_status(bucket, internal_id, original_name, stage="summarize_in_progress", merged_key=merged_key)
+
+        # קריאה ל־Gemini (הפונקציה מטפלת בלוגים פנימיים)
+        summary = _gemini_summarize_and_answer(full_text)
+
+        # בדיקות על התוצאה
+        if not isinstance(summary, dict) or "sections" not in summary:
+            log.warning("[Summarize] unexpected summary shape for internal_id=%s: type=%s keys=%s",
+                        internal_id, type(summary), list(summary.keys()) if isinstance(summary, dict) else None)
+
+        # sanitize filename לפני כתיבה ל‑S3
+        safe_name = sanitize_key(original_name)
+        out_key = f"{OUTPUT_PREFIX}{safe_name}.summary.json"
+
+        log.info("[Summarize] writing summary to s3://%s/%s (internal_id=%s)", bucket, out_key, internal_id)
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=out_key,
+            Body=json.dumps(summary, ensure_ascii=False).encode("utf-8"),
+            ContentType="application/json"
+        )
+
+        # עדכון סטטוס סופי
+        _update_status(bucket, internal_id, original_name, stage="summarized", summary_key=out_key)
+        log.info("[Summarize] completed successfully for internal_id=%s summary_key=%s", internal_id, out_key)
+
+    except Exception as e:
+        # לוג מלא עם stacktrace
+        log.exception("[Summarize][ERROR] failed to produce summary for internal_id=%s: %s", internal_id, e)
+        # עדכון סטטוס כושל עם פרטי השגיאה (מועיל ל־frontend ולדיאגנוסטיקה)
+        try:
+            _update_status(bucket, internal_id, original_name, stage="summarize_failed", errors=str(e))
+        except Exception:
+            log.exception("[Summarize][ERROR] failed to update status for internal_id=%s", internal_id)
+        # להחליט אם להחזיר שגיאה (מעלה retry) או להחזיר תשובה מבוקרת.
+        # כאן נזרוק את החריגה כדי שה־Lambda יירשם ככשל (ניתן לשנות ל־return 500 אם רוצים למנוע retry).
+        raise
+
+    # בסיום (אם הגעת לכאן) החזרת תשובה מוצלחת
     return {
         "statusCode": 200,
-        "body": json.dumps({"status": "ok",
-                            "summary_key": out_key,
-                            "manifest_key": manifest_key,
-                            "internal_id": internal_id,
-                            "original_name": original_name}, ensure_ascii=False)
+        "body": json.dumps({
+            "status": "ok",
+            "summary_key": out_key,
+            "manifest_key": manifest_key,
+            "internal_id": internal_id,
+            "original_name": original_name
+        }, ensure_ascii=False)
     }
+
+
+
+
+    
 
 
 

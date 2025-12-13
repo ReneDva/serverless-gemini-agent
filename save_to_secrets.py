@@ -6,8 +6,15 @@ Deletes an existing secret immediately (ForceDeleteWithoutRecovery=True),
 waits until the secret name is free, then creates the new secret.
 
 Usage examples:
-  python save_to_secrets.py --secrets-file secrets_gemini.json --secret-name my/gemini/all-env --region us-east-1
-  python save_to_secrets.py --env .env --secret-name my/gemini/all-env --region us-east-1 --all
+$env:AWS_PROFILE = "admin-manager"
+python save_to_secrets.py --secrets-file secrets_gemini.json --secret-name my/gemini/all-env --region us-east-1
+
+or
+$env:AWS_PROFILE = "admin-manager"
+python save_to_secrets.py --env .env --secret-name my/gemini/all-env --region us-east-1 --all
+
+if you want to delete the env profile, you can use the following command:
+    Remove-Item Env:AWS_PROFILE
 
 Options:
   --delete-timeout SECONDS   How long to wait for deletion to complete (default 120)
