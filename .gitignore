@@ -1,8 +1,18 @@
 # .gitignore content
+.aws-sam/
+
+layer/
+
+.idea/
+tests/
+uploads/
+frontend/node_modules/
+frontend/.idea/
+frontend/upload.js.bak
+
 
 # Ignore all dependencies packages inside venv
-venv/
+.venv/
 
 # Secret files
 .env
-secrets_gemini.json
