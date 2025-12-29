@@ -1,8 +1,8 @@
 const isLocal = false;
 
-const PRESIGN_ENDPOINT = isLocal ? "http://127.0.0.1:3000/presign" : "https://xs3x9cfo4h.execute-api.us-east-1.amazonaws.com/presign";
+const PRESIGN_ENDPOINT = isLocal ? "http://127.0.0.1:3000/presign" : "https://sxqer8521d.execute-api.us-east-1.amazonaws.com/presign";
 
-const SUMMARY_ENDPOINT = isLocal ? "http://127.0.0.1:3000/summary" : "https://xs3x9cfo4h.execute-api.us-east-1.amazonaws.com/summary";
+const SUMMARY_ENDPOINT = isLocal ? "http://127.0.0.1:3000/summary" : "https://sxqer8521d.execute-api.us-east-1.amazonaws.com/summary";
 
 console.log(">>> PRESIGN_ENDPOINT:", PRESIGN_ENDPOINT);
 console.log(">>> SUMMARY_ENDPOINT:", SUMMARY_ENDPOINT);
@@ -27,15 +27,18 @@ function safeGet(id) {
   return document.getElementById(id);
 }
 
-// מיפוי של שלבי העיבוד להודעות ידידותיות
+// ============================================================
+// מיפוי של שלבי העיבוד להודעות ידידותיות למשתמש
+// ============================================================
 const stageFriendly = {
   "uploaded": "הקובץ התקבל במערכת",
-  "split": "מכינים את הקובץ לחיתוך והעלאה",
+  "split": "מכינים את הקובץ לחיתוך",
   "transcribe_in_progress": "מתמללים את ההקלטה",
   "transcribe_completed": "התמלול הושלם",
   "merged": "ממזגים את התמלילים",
   "summarize_in_progress": "מכינים את הסיכום",
   "summarized": "הסיכום מוכן",
+
   // מצבי כשל
   "transcribe_failed": "אירעה שגיאה בתמלול",
   "summarize_failed": "אירעה שגיאה ביצירת הסיכום",
@@ -43,41 +46,56 @@ const stageFriendly = {
   "convert_failed": "אירעה שגיאה בהמרת הקובץ"
 };
 
-// --- פונקציה שמחזירה הודעה ידידותית למשתמש ---
-function friendlyProgressMessage(data, fileName) {
-  console.debug(">>> Raw server response (data):", data);
 
+// ============================================================
+// פונקציה שמחזירה הודעה ידידותית למשתמש לפי ה-stage
+// ============================================================
+function friendlyProgressMessage(data, fileName) {
   const name = data.original_name || fileName;
   const stage = data.stage || "in-progress";
-  const friendlyStage = stageFriendly[stage] || "העיבוד בעיצומו";
-  const completed = Number(data.completed_parts || 0);
-  const total = data.total_parts ? Number(data.total_parts) : null;
 
-  // טיפול במצבי כשל: אם stage הוא אחד מהכשלונות, נחזיר הודעה אדומה
+  // --- מצבי כשל ---
   if (["transcribe_failed", "summarize_failed", "convert_failed", "preprocess_failed"].includes(stage)) {
-    return `❌ "${name}" — ${friendlyStage}. אנא נסה שוב או בדוק את הקובץ.`;
+      return `❌ "${name}" — ${stageFriendly[stage]}.`;
   }
 
-  let etaText = "";
-  if (total && completed < total) {
-    const remainingParts = total - completed;
-    const estMin = Math.ceil((remainingParts * 20) / 60); // הערכה גסה בדקות
-    etaText = ` (משוער: עוד כ־${estMin} דקות)`;
-  }
+  // --- שלבים ידידותיים ---
+  switch (stage) {
+      case "uploaded":
+          return `הקובץ עובר עיבוד מקדים...`;
 
-  if (total) {
-    return `העיבוד של "${name}" — ${friendlyStage}. הושלמו ${completed} מתוך ${total}${etaText}.`;
-  } else {
-    return `העיבוד של "${name}" — ${friendlyStage}.`;
+      case "split":
+          return `מכינים את הקובץ לחיתוך...`;
+
+      case "transcribe_in_progress":
+          return `עיבוד מקדים הושלם — מתמללים את ההקלטה...`;
+
+      case "transcribe_completed":
+          return `התמלול הושלם — ממזגים את התמלילים...`;
+
+      case "merged":
+          return `התמלול הושלם — ממזגים את התמלילים...`;
+
+      case "summarize_in_progress":
+          return `התמלול והמיזוג הושלמו — מכינים את הסיכום...`;
+
+      case "summarized":
+          return `הסיכום מוכן!`;
+
+      default:
+          return `העיבוד בעיצומו...`;
   }
 }
 
 
-/// --- פונקציית polling ---
+
+// ============================================================
+// פונקציית polling — אחראית למשיכת סטטוס מהשרת
+// ============================================================
 async function fetchSummaryWithRetry(fileName, internalId = null) {
   let attempt = 0;
-  let maxAttempts = 15;
-  let intervalMs = 20000;
+  const maxAttempts = 15;
+  const intervalMs = 20000;
 
   function buildQueryParam() {
     return internalId
@@ -93,6 +111,8 @@ async function fetchSummaryWithRetry(fileName, internalId = null) {
     try {
       const url = `${SUMMARY_ENDPOINT}?${queryParam}`;
       const resp = await fetch(url);
+
+      // --- ניסיון לקרוא JSON ---
       let data;
       try {
         data = await resp.json();
@@ -102,22 +122,23 @@ async function fetchSummaryWithRetry(fileName, internalId = null) {
         data = {};
       }
 
-      // --- טיפול בתשובות ---
-        // --- טיפול בתשובות ---
+      // ============================================================
+      // 200 — סיכום מוכן
+      // ============================================================
       if (resp.status === 200) {
-            // סיכום מוכן
-            if (typeof window.setProgress === 'function') {
-                // מציג 100% ו־0 דקות
-                window.setProgress(100, 100, 100, true, 0);
-            }
-            renderSummary(data);
-            updateStatus(`הסיכום מוכן עבור "${data.original_name || fileName}".`, false);
-            return;
+        if (typeof window.setProgress === 'function') {
+          window.setProgress(100, 100, 100, true, 0);
+        }
+        renderSummary(data);
+        updateStatus(`הסיכום מוכן עבור "${data.original_name || fileName}".`, false);
+        return;
       }
 
 
-        if (resp.status === 202) {
-        // סטטוס ביניים
+      // ============================================================
+      // 202 — סטטוס ביניים
+      // ============================================================
+      if (resp.status === 202) {
         updateStatus(friendlyProgressMessage(data, fileName), false);
 
         let prePct = 0, transPct = 0, sumPct = 0;
@@ -125,34 +146,47 @@ async function fetchSummaryWithRetry(fileName, internalId = null) {
         const completed = Number(data.completed_parts || 0);
         const total = Number(data.total_parts || 0);
 
-        // חישוב זמן משוער לפי חלקים
+        // --- ETA ---
         let etaMinutes = null;
         if (total && completed < total) {
           const remainingParts = total - completed;
-          etaMinutes = Math.ceil((remainingParts * 20) / 60); // 20 שניות לחלק
+          etaMinutes = Math.ceil((remainingParts * 20) / 60);
         }
 
-        // העלאה – 10%
+        // ============================================================
+        // מיפוי שלבים → אחוזי התקדמות
+        // ============================================================
+
+        // שלב 1: העלאה — 10%
         if (stage === 'uploaded') {
           prePct = 10;
         }
-        // עיבוד מקדים – עד 30%
+
+        // שלב 2: split — עיבוד מקדים עד 30%
         else if (stage === 'split') {
           prePct = 10 + (total ? Math.min(20, Math.round((completed / total) * 20)) : 20);
         }
-        // תמלול ומיזוג – עוד 30%
-        else if (stage.startsWith('transcribe') || stage === 'merged' || stage === 'transcribe_completed') {
-          prePct = 30; // העלאה+עיבוד מקדים מלאים
+
+        // שלב 3: תמלול ומיזוג — 30% נוספים (סה״כ 60%)
+        else if (
+          stage.startsWith('transcribe') ||
+          stage === 'merged' ||
+          stage === 'transcribe_completed'
+        ) {
+          prePct = 30; // שלב מקדים הושלם
           transPct = total ? Math.min(30, Math.round((completed / total) * 30)) : 30;
         }
-        // סיכום – עוד 30%
+
+        // שלב 4: סיכום — 30% אחרונים (סה״כ 90%)
         else if (stage.startsWith('summarize')) {
-          prePct = 30; transPct = 30;
+          prePct = 30;
+          transPct = 30;
           sumPct = stage === 'summarized'
             ? 30
             : (total ? Math.min(30, Math.round((completed / total) * 30)) : 15);
         }
 
+        // --- עדכון progress bar ---
         if (typeof window.setProgress === 'function') {
           window.setProgress(prePct, transPct, sumPct, true, etaMinutes);
         }
@@ -161,15 +195,22 @@ async function fetchSummaryWithRetry(fileName, internalId = null) {
         continue;
       }
 
+
+      // ============================================================
+      // 404 — עדיין לא נוצר סטטוס
+      // ============================================================
       if (resp.status === 404) {
         updateStatus("הקובץ בתור לעיבוד. נעדכן בהמשך.", false);
         if (typeof window.setProgress === 'function') {
-          window.setProgress(10, 0, 0, true, null); // רק העלאה, אין ETA
+          window.setProgress(10, 0, 0, true, null);
         }
         await new Promise(resolve => setTimeout(resolve, intervalMs));
         continue;
       }
 
+      // ============================================================
+      // שגיאה אחרת
+      // ============================================================
       updateStatus(`שגיאה לא צפויה מהשרת: ${resp.status}`, true);
       return;
 
@@ -179,6 +220,7 @@ async function fetchSummaryWithRetry(fileName, internalId = null) {
       return;
     }
   }
+
   updateStatus("העיבוד לא הסתיים אחרי מספר ניסיונות.", true);
 }
 

@@ -586,23 +586,56 @@ def generate_internal_id() -> str:
 
 def _update_status(bucket: str, internal_id: str, original_name: str, **kwargs):
     """
-    עדכון סטטוס: נשמר גם המזהה הפנימי וגם השם המקורי
+    עדכון סטטוס: נשמר גם המזהה הפנימי וגם השם המקורי.
+    תומך ב-retry logic למניעת race conditions בעדכונים מקבילים.
     """
     status_key = f"statuses/{internal_id}.json"
-    current = {}
-    try:
-        obj = s3_client.get_object(Bucket=bucket, Key=status_key)
-        current = json.loads(obj["Body"].read().decode("utf-8"))
-    except Exception:
-        pass
-    current.update({
-        "updated_at": int(time.time()),
-        "internal_id": internal_id,
-        "original_name": original_name
-    })
-    current.update(kwargs)
-    _put_json(bucket, status_key, current)
-    log.info("Status updated: s3://%s/%s -> %s", bucket, status_key, current)
+    max_retries = 3
+    retry_delay = 0.1  # 100ms
+    
+    for attempt in range(max_retries):
+        current = {}
+        try:
+            # טעינת סטטוס קיים
+            try:
+                obj = s3_client.get_object(Bucket=bucket, Key=status_key)
+                current = json.loads(obj["Body"].read().decode("utf-8"))
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "NoSuchKey":
+                    raise
+                # קובץ לא קיים - זה בסדר, נתחיל מחדש
+            
+            # שמירת גרסה קודמת למניעת race conditions
+            previous_version = current.get("_version", 0)
+            
+            # עדכון שדות בסיסיים
+            current.update({
+                "updated_at": int(time.time()),
+                "internal_id": internal_id,
+                "original_name": original_name,
+                "_version": previous_version + 1  # גרסה מקומית למעקב
+            })
+            
+            # עדכון שדות ספציפיים
+            current.update(kwargs)
+            
+            # כתיבה ל-S3
+            _put_json(bucket, status_key, current)
+            log.info("Status updated: s3://%s/%s -> version=%d, stage=%s", 
+                    bucket, status_key, current.get("_version"), current.get("stage"))
+            return
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                # Retry עם exponential backoff
+                wait_time = retry_delay * (2 ** attempt)
+                log.warning("Status update attempt %d failed, retrying in %.2fs: %s", 
+                           attempt + 1, wait_time, e)
+                time.sleep(wait_time)
+            else:
+                # ניסיון אחרון נכשל - נזרוק שגיאה
+                log.error("Status update failed after %d attempts: %s", max_retries, e)
+                raise
 
 def _build_manifest(internal_id: str, original_name: str, part_keys: list[str]) -> dict:
     """
@@ -662,6 +695,7 @@ def agent_handler(event, context):
     # Transcribe (שימוש במזהה החדש)
     _update_status(bucket, internal_id, original_name, stage="transcribe_in_progress", total_parts=len(part_keys))
     results, errors = [], []
+    failed_parts = []  # רשימת חלקים שנכשלו למעקב
     max_workers = min(8, len(part_keys)) or 1
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -678,14 +712,21 @@ def agent_handler(event, context):
                                completed_parts=len(results),
                                last_completed=k)
             except Exception as e:
-                errors.append({"part_key": k, "error": str(e)})
+                error_info = {"part_key": k, "part_index": idx, "error": str(e)}
+                errors.append(error_info)
+                failed_parts.append(k)
                 _update_status(bucket, internal_id, original_name,
                                stage="transcribe_in_progress",
                                error_for=k,
-                               error=str(e))
+                               error=str(e),
+                               failed_parts=failed_parts.copy())  # רשימת חלקים שנכשלו
 
     if errors:
-        _update_status(bucket, internal_id, original_name, stage="transcribe_failed", errors=errors)
+        _update_status(bucket, internal_id, original_name, 
+                       stage="transcribe_failed", 
+                       errors=errors,
+                       failed_parts=failed_parts,
+                       completed_parts=len(results))
         raise RuntimeError(f"Transcribe failed: {errors}")
 
     _update_status(bucket, internal_id, original_name, stage="transcribe_completed", completed_parts=len(results))
@@ -712,7 +753,19 @@ def agent_handler(event, context):
             raise RuntimeError("Merged transcript is empty, nothing to summarize")
 
         # עדכון סטטוס תחילת סיכום
-        _update_status(bucket, internal_id, original_name, stage="summarize_in_progress", merged_key=merged_key)
+        # שמירת completed_parts גם בשלב הסיכום למעקב עקבי (מהשלב הקודם)
+        try:
+            status_key_temp = f"statuses/{internal_id}.json"
+            status_obj_temp = s3_client.get_object(Bucket=bucket, Key=status_key_temp)
+            status_data_temp = json.loads(status_obj_temp["Body"].read().decode("utf-8"))
+            completed_parts = status_data_temp.get("completed_parts")
+        except Exception:
+            completed_parts = None
+        
+        _update_status(bucket, internal_id, original_name, 
+                       stage="summarize_in_progress", 
+                       merged_key=merged_key,
+                       completed_parts=completed_parts)
 
         # קריאה ל־Gemini (הפונקציה מטפלת בלוגים פנימיים)
         summary = _gemini_summarize_and_answer(full_text)
@@ -733,6 +786,20 @@ def agent_handler(event, context):
             Body=json.dumps(summary, ensure_ascii=False).encode("utf-8"),
             ContentType="application/json"
         )
+
+        # עדכון manifest עם summary_key הנכון (תיקון אי-התאמה)
+        try:
+            manifest_key = f"manifests/{internal_id}.json"
+            manifest_obj = s3_client.get_object(Bucket=bucket, Key=manifest_key)
+            manifest_data = json.loads(manifest_obj["Body"].read().decode("utf-8"))
+            if manifest_data.get("summary_key") != out_key:
+                manifest_data["summary_key"] = out_key
+                manifest_data["summary_key_updated_at"] = int(time.time())
+                _put_json(bucket, manifest_key, manifest_data)
+                log.info("[Manifest] updated summary_key to %s", out_key)
+        except Exception as e:
+            log.warning("[Manifest] failed to update summary_key: %s", e)
+            # לא קריטי - נמשיך
 
         # עדכון סטטוס סופי
         _update_status(bucket, internal_id, original_name, stage="summarized", summary_key=out_key)

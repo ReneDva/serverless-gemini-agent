@@ -239,51 +239,88 @@
           function clamp(v) { return Math.max(0, Math.min(100, Number(v) || 0)); }
 
           /**
-           * setProgress(pre, trans, sum, show, etaMinutes)
-           * pre/trans/sum: 0..100
-           * show: אם true — הצג את הווידג'ט גם אם הערכים 0
-           * etaMinutes: זמן משוער שמועבר מבחוץ
-           */
-          function setProgress(pre = 0, trans = 0, sum = 0, show = false, etaMinutes = null) {
-              pre = clamp(pre); trans = clamp(trans); sum = clamp(sum);
+ * setProgress(pre, trans, sum, show, etaMinutes)
+ * pre/trans/sum: ערכים "משוקללים" לכל שלב:
+ *   - העלאה + עיבוד מקדים (pre): 0..40
+ *   - תמלול + מיזוג (trans):     0..30
+ *   - סיכום (sum):               0..30
+ * ביחד הם אמורים לסכם ל‑0..100.
+ *
+ * show: אם true — הצג את הווידג'ט גם אם הערכים 0
+ * etaMinutes: זמן משוער שמועבר מבחוץ
+ */
+function setProgress(pre = 0, trans = 0, sum = 0, show = false, etaMinutes = null) {
+    pre = Number(pre) || 0;
+    trans = Number(trans) || 0;
+    sum = Number(sum) || 0;
 
-              // מחשבים אחוז כולל (שלושת השלבים יחד)
-              const totalPercent = Math.round((pre + trans + sum) / 3);
+    const totalPercent = clamp(pre + trans + sum);
 
-              console.debug(">>> setProgress called", {
-                  prePct: pre,
-                  transPct: trans,
-                  sumPct: sum,
-                  totalPercent,
-                  show,
-                  etaMinutes
-              });
+    console.debug(">>> setProgress called", {
+        prePct: pre,
+        transPct: trans,
+        sumPct: sum,
+        totalPercent,
+        show,
+        etaMinutes
+    });
 
-              const bar = $id('progress-bar');
-              if (bar) {
-                  bar.style.width = totalPercent + '%';
-                  bar.setAttribute('aria-valuenow', totalPercent);
-                  bar.textContent = totalPercent + '%';
-              }
+    // --- עדכון progress bar ---
+    const bar = $id('progress-bar');
+    if (bar) {
+        bar.style.width = totalPercent + '%';
+        bar.setAttribute('aria-valuenow', totalPercent);
+        bar.textContent = totalPercent + '%';
+    }
 
-              const timeEl = $id('progressTime');
-              if (timeEl) {
-                  timeEl.textContent = etaMinutes !== null ? `${etaMinutes} דק'` : '—';
-              }
+    // --- ETA ---
+    const timeEl = $id('progressTime');
+    if (timeEl) {
+        timeEl.textContent = etaMinutes !== null ? `${etaMinutes} דק'` : '—';
+    }
 
-              const labelEl = $id('progressLabel');
-              let label = 'ממתין לעיבוד';
-              if (sum > 0) label = 'מכין סיכום';
-              else if (trans > 0) label = 'מתמלל וממזג';
-              else if (pre > 0) label = 'מעבד מקטעים';
-              if (labelEl) labelEl.textContent = label;
+    // --- טקסט מילולי מתחת לבר ---
+    const labelEl = $id('progressLabel');
+    let label = 'ממתין לעיבוד';
 
-              const wrapper = $id('progress-wrapper');
-              if (wrapper) {
-                  if (show || totalPercent > 0) wrapper.style.display = 'block';
-                  else wrapper.style.display = 'none';
-              }
-          }
+    /**
+     * סדר עדיפויות:
+     * 1. אם ETA = 0 בשלב הסיכום → "הסיכום מוכן"
+     * 2. סיכום
+     * 3. תמלול
+     * 4. עיבוד מקדים
+     */
+
+    // --- אם ETA = 0 בשלב הסיכום → להציג מיד "הסיכום מוכן" ---
+    if (sum > 0 && etaMinutes === 0) {
+        label = 'הסיכום מוכן';
+    }
+    else if (sum > 0) {
+        label = 'מכינים את הסיכום';
+    }
+    else if (trans > 0) {
+        label = 'מתמללים את ההקלטה';
+    }
+    else if (pre >= 30) {
+        label = 'עיבוד מקדים הושלם';
+    }
+    else if (pre > 10) {
+        label = 'מכינים את הקובץ לעיבוד מקבילי';
+    }
+    else if (pre > 0) {
+        label = 'מעבד מקטעים';
+    }
+
+    if (labelEl) labelEl.textContent = label;
+
+    // --- הצגת הווידג'ט ---
+    const wrapper = $id('progress-wrapper');
+    if (wrapper) {
+        wrapper.style.display = (show || totalPercent > 0) ? 'block' : 'none';
+    }
+}
+
+
 
           window.setProgress = setProgress;
       })();
