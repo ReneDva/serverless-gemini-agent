@@ -11,7 +11,141 @@
   <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@200..800&family=Noto+Sans+Hebrew:wght@100..900&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;700;900&display=swap" rel="stylesheet">
 
-  
+    <style>
+    :root{
+        /* צבעים מרכזיים */
+        --bg-page: #b0f1e7;
+        --accent: #ff2167;
+        --accent-hover: #e01b5a;
+        --text-muted: #555;
+        --text-accent: #00796b;
+    }
+
+    /* בסיסי */
+    html,body{
+        height:100%;
+        margin:0;
+        padding:0;
+        box-sizing:border-box;
+    }
+    *,*::before,*::after{ box-sizing:inherit; }
+
+    body{
+        font-family: "Assistant", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        direction: rtl;
+        background-color: var(--bg-page);
+        min-height:100vh;
+        color:#222;
+        -webkit-font-smoothing:antialiased;
+        -moz-osx-font-smoothing:grayscale;
+    }
+
+    /* כותרת ראשית */
+    h1{
+        font-family: "Rubik", "Assistant", sans-serif;
+        color:#fff;
+        font-weight:900;
+        text-shadow:2px 2px 4px rgba(0,0,0,0.45);
+        margin:0 0 1rem 0;
+        text-align:center;
+    }
+
+    /* כפתור העלאה */
+    #upload-btn{
+        display:inline-block;
+        width:100%;
+        background-color:var(--accent);
+        color:#fff;
+        border:0;
+        padding:.9rem 1rem;
+        font-size:1.05rem;
+        font-weight:700;
+        border-radius:6px;
+        cursor:pointer;
+        transition: transform .18s ease, background-color .18s ease;
+    }
+    #upload-btn:hover{ transform:scale(1.03); background-color:var(--accent-hover); }
+
+    /* סטטוס טקסט */
+    #status-message{
+        margin-top:.75rem;
+        text-align:center;
+        color:var(--text-muted);
+        font-size:0.95rem;
+    }
+
+    /* ====== Progress bar ====== */
+    #progress-wrapper{
+        margin-top:1rem;
+        display:none; /* מוסתר בהתחלה */
+    }
+    .progress{
+        height:25px;
+        background-color:#eee;
+        border-radius:6px;
+        overflow:hidden;
+    }
+    #progress-bar{
+        background-color:var(--accent);
+        color:#fff;
+        font-weight:700;
+        text-align:center;
+        line-height:25px;
+        transition:width .3s ease;
+    }
+    #progressTime{
+        font-weight:700;
+        color:var(--text-accent);
+        font-size:0.95rem;
+        margin-top:.5rem;
+        display:inline-block;
+    }
+    #progressLabel{
+        color:var(--text-muted);
+        font-size:0.9rem;
+        margin-top:.5rem;
+        display:inline-block;
+    }
+
+    /* ====== Summary container & download ====== */
+    #summary-container{
+        margin-top:1.25rem;
+        background:#fff;
+        border-radius:8px;
+        box-shadow:0 6px 18px rgba(0,0,0,0.08);
+        display:none; /* מוסתר בהתחלה */
+        animation: fadeIn .9s ease both;
+        overflow:hidden;
+    }
+    #summary-container .card-header{
+        background-color:#00CED1;
+        color:#fff;
+        font-weight:700;
+        font-size:0.95rem;
+        padding:.6rem 1rem;
+    }
+    #summary-container .card-body{ padding:1rem; color:#222; }
+    #download-btn{
+        background:var(--accent);
+        color:#fff;
+        border:0;
+        padding:.5rem .75rem;
+        border-radius:6px;
+        cursor:pointer;
+    }
+    #download-btn:hover{ background:var(--accent-hover); transform:scale(1.02); }
+
+    /* אנימציה */
+    @keyframes fadeIn{ from{ opacity:0; transform:translateY(12px); } to{ opacity:1; transform:none; } }
+
+    /* רספונסיבי */
+    @media (max-width:420px){
+        #upload-btn{ padding:.75rem; font-size:1rem; }
+        #progressTime, #progressLabel{ font-size:0.85rem; }
+    }
+</style>
+
+
 </head>
 
 <body class="container-sm py-4">
@@ -23,32 +157,19 @@
   <button id="upload-btn" class="btn btn-lg w-100">העלה</button>
   <div id="status-message" class="mt-3 text-muted text-center"></div>
 
-  <!-- Progress wheel HTML -->
-  <div id="progress-wrapper" class="text-center my-3" style="display:none;" role="status" aria-live="polite">
-    <div id="progress-wheel" style="width:220px; height:220px; margin:0 auto; position:relative;">
-      <div class="progress-wrap" aria-hidden="false" role="img" aria-label="התקדמות עיבוד">
-        <!-- בסיס מחולק לשלושה סקטורים -->
-        <div class="ring-base"></div>
-
-        <!-- שכבת המילוי הדינמית (JS יעדכן את הרקע שלה) -->
-        <div id="ringProgress" class="ring-progress"></div>
-
-        <!-- טקסט במרכז (JS יעדכן את #progressTime ו‑#progressLabel) -->
-        <div class="progress-center">
-          <div id="progressTime" class="progress-time">--:--</div>
-          <div id="progressLabel" class="progress-label">מוערך להשלמה</div>
-        </div>
+  <!-- ======= Progress bar במקום גלגל ======= -->
+  <div id="progress-wrapper" class="my-3" style="display:none;" role="status" aria-live="polite">
+      <div class="progress" style="height: 25px;">
+          <div id="progress-bar" class="progress-bar" role="progressbar"
+               style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+              0%
+          </div>
       </div>
-
-      <!-- legend (צבעים תואמים לצבעי המעגלים) -->
-      <div id="progress-legend" class="mt-2" style="font-size:13px; display:flex; justify-content:center; gap:12px; align-items:center;">
-        <span><span class="sw" style="background:var(--pre-color)"></span>עיבוד מקדים</span>
-        <span><span class="sw" style="background:var(--trans-color)"></span>תמלול ומיזוג</span>
-        <span><span class="sw" style="background:var(--sum-color)"></span>יצירת סיכום</span>
+      <div class="text-center mt-2">
+          <span id="progressTime">--:--</span> | <span id="progressLabel">ממתין לעיבוד</span>
       </div>
-    </div>
   </div>
-  <!-- end progress wheel -->
+
 
   <div id="summary-container" class="card shadow mt-4">
     <div class="card-header text-end text-secondary" style="font-size:14px; background-color:#b0f1e7;">
@@ -69,350 +190,103 @@
 <script src="font-loader.js"></script>
 
 <!-- ======= אתחול fallback, חיבור כפתור וחשיפת setProgress ======= -->
-<script>
-  (function () {
-    // Guard למניעת אתחול כפול
-    if (window.__progressInitDone) {
-      console.debug('Progress init already done');
-      return;
-    }
-    window.__progressInitDone = true;
-  
-    // עזר בטיחותי לקבלת אלמנטים
-    function $id(id) { return document.getElementById(id); }
-  
-    // --- initProgressFallback: אתחול מצב התחלתי ל‑ringProgress אם צריך ---
-    function initProgressFallback() {
-      const ring = $id('ringProgress');
-      const wrapper = $id('progress-wrapper');
-      if (!ring) return;
-      // רקע ריק (שקוף) — לא מציג את הווידג'ט כברירת מחדל
-      ring.style.background = 'conic-gradient(transparent 0deg 360deg)';
-      if (wrapper) wrapper.style.display = 'none';
-      console.debug('Progress fallback initialized');
-    }
-    // הרצה אחרי DOM מוכן
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-      setTimeout(initProgressFallback, 0);
-    } else {
-      document.addEventListener('DOMContentLoaded', initProgressFallback);
-    }
-  
-    // --- attachUploadBtn: חיבור בטוח של כפתור ההעלאה (עם guard) ---
-    function attachUploadBtn() {
-      const uploadBtn = $id('upload-btn');
-      if (!uploadBtn) {
-        console.warn('attachUploadBtn: upload-btn not found; skipping');
-        return;
-      }
-      if (uploadBtn.dataset.uploadBtnAttached) {
-        console.debug('attachUploadBtn: already attached');
-        return;
-      }
-      uploadBtn.dataset.uploadBtnAttached = '1';
-  
-      uploadBtn.addEventListener('click', () => {
-        const summaryContainer = $id('summary-container');
-        if (summaryContainer) summaryContainer.style.display = 'none';
-        if (typeof updateStatus === 'function') updateStatus("מתחיל העלאה ועיבוד...");
-        // upload.js אמור לטפל בהעלאה עצמה (presign + PUT)
-      });
-    }
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-      setTimeout(attachUploadBtn, 0);
-    } else {
-      document.addEventListener('DOMContentLoaded', attachUploadBtn);
-    }
-  
-    // --- setProgress: חשיפה גלובלית לעדכון טבעת ה‑3 סקטורים (conic-gradient) ---
-    function clamp(v) { return Math.max(0, Math.min(100, Number(v) || 0)); }
-  
-    /**
-     * setProgress(pre, trans, sum, show, etaMinutes)
-     * pre/trans/sum: 0..100
-     * show: אם true — הצג את הווידג'ט גם אם הערכים 0
-     * etaMinutes: זמן משוער שמועבר מבחוץ
-     */
-    function setProgress(pre = 0, trans = 0, sum = 0, show = false, etaMinutes = null) {
-      pre = clamp(pre); trans = clamp(trans); sum = clamp(sum);
-      console.debug(">>> setProgress called", {
-        prePct: pre,
-        transPct: trans,
-        sumPct: sum,
-        show,
-        etaMinutes
-      });
+  <script>
+      (function () {
+          if (window.__progressInitDone) {
+              console.debug('Progress init already done');
+              return;
+          }
+          window.__progressInitDone = true;
 
-      // חישוב זוויות לכל סקטור (120deg לכל שלב)
-      const sectorDeg = 360 / 3;
-      const a1 = (pre / 100) * sectorDeg;
-      const a2 = a1 + (trans / 100) * sectorDeg;
-      const a3 = a2 + (sum / 100) * sectorDeg;
+          function $id(id) { return document.getElementById(id); }
 
-      console.debug(">>> setProgress angles", { a1, a2, a3 });
+          function initProgressFallback() {
+              const bar = $id('progress-bar');
+              const wrapper = $id('progress-wrapper');
+              if (!bar) return;
+              bar.style.width = '0%';
+              bar.textContent = '0%';
+              if (wrapper) wrapper.style.display = 'none';
+              console.debug('Progress fallback initialized');
+          }
 
-      // צבעים מ‑CSS variables (fallback אם לא מוגדרים)
-      const rootStyle = getComputedStyle(document.documentElement);
-      const preColor = (rootStyle.getPropertyValue('--pre-color') || '#ffd6e6').trim();
-      const transColor = (rootStyle.getPropertyValue('--trans-color') || '#ffe6b3').trim();
-      const sumColor = (rootStyle.getPropertyValue('--sum-color') || '#c8f7e9').trim();
+          if (document.readyState === 'complete' || document.readyState === 'interactive') {
+              setTimeout(initProgressFallback, 0);
+          } else {
+              document.addEventListener('DOMContentLoaded', initProgressFallback);
+          }
 
-      console.debug(">>> setProgress colors", { preColor, transColor, sumColor });
+          function attachUploadBtn() {
+              const uploadBtn = $id('upload-btn');
+              if (!uploadBtn) return;
+              if (uploadBtn.dataset.uploadBtnAttached) return;
+              uploadBtn.dataset.uploadBtnAttached = '1';
 
-      // בונים את ה‑conic-gradient רק אם יש חלקים לצבוע
-      const stops = [];
-      if (a1 > 0) stops.push(`${preColor} 0deg ${a1}deg`);
-      if (a2 > a1) stops.push(`${transColor} ${a1}deg ${a2}deg`);
-      if (a3 > a2) stops.push(`${sumColor} ${a2}deg ${a3}deg`);
+              uploadBtn.addEventListener('click', () => {
+                  const summaryContainer = $id('summary-container');
+                  if (summaryContainer) summaryContainer.style.display = 'none';
+                  if (typeof updateStatus === 'function') updateStatus("מתחיל העלאה ועיבוד...");
+              });
+          }
 
-      const ring = $id('ringProgress');
-      if (ring) {
-        if (stops.length > 0) {
-          stops.push(`transparent ${a3}deg 360deg`);
-          ring.style.background = `conic-gradient(${stops.join(', ')})`;
-          console.debug(">>> setProgress ring background", ring.style.background);
-        } else {
-          ring.style.background = 'conic-gradient(transparent 0deg 360deg)';
-          console.debug(">>> setProgress ring background empty");
-        }
-      }
+          if (document.readyState === 'complete' || document.readyState === 'interactive') {
+              setTimeout(attachUploadBtn, 0);
+          } else {
+              document.addEventListener('DOMContentLoaded', attachUploadBtn);
+          }
 
-      // עדכון טקסט מרכזי — ETA שמועבר מבחוץ
-      const timeEl = $id('progressTime');
-      if (timeEl) {
-        timeEl.textContent = etaMinutes !== null ? `${etaMinutes} דק'` : '—';
-        console.debug(">>> setProgress ETA text", timeEl.textContent);
-      }
+          // --- setProgress: עדכון progress bar ---
+          function clamp(v) { return Math.max(0, Math.min(100, Number(v) || 0)); }
 
-      // תווית שלב לפי ההתקדמות
-      const labelEl = $id('progressLabel');
-      let label = 'ממתין לעיבוד';
-      if (sum > 0) label = 'מכין סיכום';
-      else if (trans > 0) label = 'מתמלל וממזג';
-      else if (pre > 0) label = 'מעבד מקטעים';
-      if (labelEl) {
-        labelEl.textContent = label;
-        console.debug(">>> setProgress label text", labelEl.textContent);
-      }
+          /**
+           * setProgress(pre, trans, sum, show, etaMinutes)
+           * pre/trans/sum: 0..100
+           * show: אם true — הצג את הווידג'ט גם אם הערכים 0
+           * etaMinutes: זמן משוער שמועבר מבחוץ
+           */
+          function setProgress(pre = 0, trans = 0, sum = 0, show = false, etaMinutes = null) {
+              pre = clamp(pre); trans = clamp(trans); sum = clamp(sum);
 
-      // הצגה: רק אם show=true או אם יש התקדמות ממשית (>0)
-      const wrapper = $id('progress-wrapper');
-      if (wrapper) {
-        if (show || pre > 0 || trans > 0 || sum > 0) {
-          wrapper.style.display = 'block';
-          console.debug(">>> setProgress wrapper shown");
-        } else {
-          wrapper.style.display = 'none';
-          console.debug(">>> setProgress wrapper hidden");
-        }
-      }
-    }
+              // מחשבים אחוז כולל (שלושת השלבים יחד)
+              const totalPercent = Math.round((pre + trans + sum) / 3);
 
-    // חשיפה גלובלית
-    window.setProgress = setProgress;
+              console.debug(">>> setProgress called", {
+                  prePct: pre,
+                  transPct: trans,
+                  sumPct: sum,
+                  totalPercent,
+                  show,
+                  etaMinutes
+              });
 
-  })();
-</script>
+              const bar = $id('progress-bar');
+              if (bar) {
+                  bar.style.width = totalPercent + '%';
+                  bar.setAttribute('aria-valuenow', totalPercent);
+                  bar.textContent = totalPercent + '%';
+              }
 
+              const timeEl = $id('progressTime');
+              if (timeEl) {
+                  timeEl.textContent = etaMinutes !== null ? `${etaMinutes} דק'` : '—';
+              }
 
+              const labelEl = $id('progressLabel');
+              let label = 'ממתין לעיבוד';
+              if (sum > 0) label = 'מכין סיכום';
+              else if (trans > 0) label = 'מתמלל וממזג';
+              else if (pre > 0) label = 'מעבד מקטעים';
+              if (labelEl) labelEl.textContent = label;
 
+              const wrapper = $id('progress-wrapper');
+              if (wrapper) {
+                  if (show || totalPercent > 0) wrapper.style.display = 'block';
+                  else wrapper.style.display = 'none';
+              }
+          }
 
-<!-- אם יש לך CSS חיצוני, השאירי אותו; אחרת הוסיפי את ה‑CSS שסיכמנו -->
-<style>
-  /* clean-styles.css
-   קובץ CSS מסודר ואחיד עבור הממשק (אין כפילויות) */
-:root{
-  /* צבעים מרכזיים */
-  --bg-page: #b0f1e7;
-  --accent: #ff2167;
-  --accent-hover: #e01b5a;
+          window.setProgress = setProgress;
+      })();
+  </script>
 
-  --pre-color: #ffd6e6;
-  --trans-color: #ffe6b3;
-  --sum-color: #c8f7e9;
-
-  --pre-color-full: #ff9bbf;
-  --trans-color-full: #ffb84d;
-  --sum-color-full: #00a86b;
-
-  --ring-size: 220px;
-  --ring-width: 15px;
-  --ring-transition: 400ms;
-  --text-muted: #555;
-  --text-accent: #00796b;
-}
-
-/* בסיסי */
-html,body{
-  height:100%;
-  margin:0;
-  padding:0;
-  box-sizing:border-box;
-}
-*,*::before,*::after{ box-sizing:inherit; }
-
-body{
-  font-family: "Assistant", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-  direction: rtl;
-  background-color: var(--bg-page);
-  min-height:100vh;
-  color:#222;
-  -webkit-font-smoothing:antialiased;
-  -moz-osx-font-smoothing:grayscale;
-}
-
-/* כותרת ראשית */
-h1{
-  font-family: "Rubik", "Assistant", sans-serif;
-  color:#fff;
-  font-weight:900;
-  text-shadow:2px 2px 4px rgba(0,0,0,0.45);
-  margin:0 0 1rem 0;
-  text-align:center;
-}
-
-/* כפתור העלאה */
-#upload-btn{
-  display:inline-block;
-  width:100%;
-  background-color:var(--accent);
-  color:#fff;
-  border:0;
-  padding:.9rem 1rem;
-  font-size:1.05rem;
-  font-weight:700;
-  border-radius:6px;
-  cursor:pointer;
-  transition: transform .18s ease, background-color .18s ease;
-}
-#upload-btn:hover{ transform:scale(1.03); background-color:var(--accent-hover); }
-
-/* סטטוס טקסט */
-#status-message{
-  margin-top:.75rem;
-  text-align:center;
-  color:var(--text-muted);
-  font-size:0.95rem;
-}
-
-/* ====== Progress ring (conic-gradient approach) ====== */
-.progress-wrap{
-  width:var(--ring-size);
-  height:var(--ring-size);
-  position:relative;
-  margin:0 auto;
-}
-
-/* בסיס מחולק לשלושה סקטורים (מקרא סטטי) */
-.ring-base{
-  width:100%;
-  height:100%;
-  border-radius:50%;
-  background:
-    conic-gradient(
-      var(--pre-color) 0deg 120deg,
-      var(--trans-color) 120deg 240deg,
-      var(--sum-color) 240deg 360deg
-    );
-  /* חיתוך מרכזי ליצירת טבעת */
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(50% - var(--ring-width)), black calc(50% - var(--ring-width)));
-  mask: radial-gradient(farthest-side, transparent calc(50% - var(--ring-width)), black calc(50% - var(--ring-width)));
-  transform: rotate(-90deg); /* התחלה בצפון-מזרח */
-}
-
-/* שכבת המילוי הדינמית (JS יעדכן את ה‑background) */
-.ring-progress{
-  position:absolute;
-  inset:0;
-  border-radius:50%;
-  pointer-events:none;
-  transform:rotate(-90deg);
-  background: conic-gradient(transparent 0deg 360deg);
-  transition: background var(--ring-transition) ease;
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(50% - var(--ring-width)), black calc(50% - var(--ring-width)));
-  mask: radial-gradient(farthest-side, transparent calc(50% - var(--ring-width)), black calc(50% - var(--ring-width)));
-}
-
-/* טקסט מרכזי מעל הטבעת */
-.progress-center{
-  position:absolute;
-  inset:0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  flex-direction:column;
-  pointer-events:none;
-  text-align:center;
-}
-.progress-time{ font-weight:700; color:var(--text-accent); font-size:1.05rem; }
-.progress-label{ color:var(--text-muted); font-size:0.95rem; margin-top:.35rem; }
-
-/* מקרא */
-.legend{
-  margin-top:.75rem;
-  display:flex;
-  gap:12px;
-  justify-content:center;
-  align-items:center;
-  font-size:0.95rem;
-}
-.legend .sw{ width:12px; height:12px; display:inline-block; border-radius:2px; }
-.legend span{ display:inline-flex; gap:8px; align-items:center; }
-
-/* ====== Summary container & download ====== */
-#summary-container{
-  margin-top:1.25rem;
-  background:#fff;
-  border-radius:8px;
-  box-shadow:0 6px 18px rgba(0,0,0,0.08);
-  display:none; /* מוסתר בהתחלה */
-  animation: fadeIn .9s ease both;
-  overflow:hidden;
-}
-#summary-container .card-header{
-  background-color:#00CED1;
-  color:#fff;
-  font-weight:700;
-  font-size:0.95rem;
-  padding:.6rem 1rem;
-}
-#summary-container .card-body{ padding:1rem; color:#222; }
-#download-btn{
-  background:var(--accent);
-  color:#fff;
-  border:0;
-  padding:.5rem .75rem;
-  border-radius:6px;
-  cursor:pointer;
-}
-#download-btn:hover{ background:var(--accent-hover); transform:scale(1.02); }
-
-/* ====== SVG arcs (if used elsewhere) ====== */
-#progress-wheel{ width:var(--ring-size); height:var(--ring-size); margin:0 auto; position:relative; z-index:1; }
-#progress-wheel svg circle{ transition: stroke-dasharray 600ms ease, stroke 400ms ease; vector-effect: non-scaling-stroke; }
-#arc-pre{ stroke:var(--pre-color); stroke-width:8; stroke-linecap:butt; }
-#arc-trans{ stroke:var(--trans-color); stroke-width:8; stroke-linecap:butt; }
-#arc-sum{ stroke:var(--sum-color); stroke-width:8; stroke-linecap:butt; }
-
-/* צבעים מלאים (ניתן להוסיף/להסיר מחלקות ב‑JS) */
-.arc-full-pre{ stroke:var(--pre-color-full) !important; }
-.arc-full-trans{ stroke:var(--trans-color-full) !important; }
-.arc-full-sum{ stroke:var(--sum-color-full) !important; }
-
-/* עזרי אנימציה ודיאגנוסטיקה */
-@keyframes fadeIn{ from{ opacity:0; transform:translateY(12px); } to{ opacity:1; transform:none; } }
-.debug-show-progress #progress-wrapper{ display:block !important; }
-
-/* נגישות קטנה */
-[role="status"]{ outline: none; }
-[aria-live]{ /* keep screen readers informed */ }
-
-/* סגנון רספונסיבי קטן */
-@media (max-width:420px){
-  :root{ --ring-size: 180px; --ring-width:16px; }
-  .progress-time{ font-size:16px; }
-  .progress-label{ font-size:12px; }
-  #upload-btn{ padding:.75rem; font-size:1rem; }
-}
-
-</style>
+</body>

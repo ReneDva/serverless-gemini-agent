@@ -1,8 +1,8 @@
 const isLocal = false;
 
-const PRESIGN_ENDPOINT = isLocal ? "http://127.0.0.1:3000/presign" : "https://rv41yjwq5c.execute-api.us-east-1.amazonaws.com/presign";
+const PRESIGN_ENDPOINT = isLocal ? "http://127.0.0.1:3000/presign" : "https://xs3x9cfo4h.execute-api.us-east-1.amazonaws.com/presign";
 
-const SUMMARY_ENDPOINT = isLocal ? "http://127.0.0.1:3000/summary" : "https://rv41yjwq5c.execute-api.us-east-1.amazonaws.com/summary";
+const SUMMARY_ENDPOINT = isLocal ? "http://127.0.0.1:3000/summary" : "https://xs3x9cfo4h.execute-api.us-east-1.amazonaws.com/summary";
 
 console.log(">>> PRESIGN_ENDPOINT:", PRESIGN_ENDPOINT);
 console.log(">>> SUMMARY_ENDPOINT:", SUMMARY_ENDPOINT);
@@ -103,17 +103,20 @@ async function fetchSummaryWithRetry(fileName, internalId = null) {
       }
 
       // --- טיפול בתשובות ---
+        // --- טיפול בתשובות ---
       if (resp.status === 200) {
-        // סיכום מוכן
-        if (typeof window.setProgress === 'function') {
-          window.setProgress(30, 30, 30, true, 0); // כל השלבים מלאים, ETA=0
-        }
-        renderSummary(data);
-        updateStatus(`הסיכום מוכן עבור "${data.original_name || fileName}".`, false);
-        return;
+            // סיכום מוכן
+            if (typeof window.setProgress === 'function') {
+                // מציג 100% ו־0 דקות
+                window.setProgress(100, 100, 100, true, 0);
+            }
+            renderSummary(data);
+            updateStatus(`הסיכום מוכן עבור "${data.original_name || fileName}".`, false);
+            return;
       }
 
-      if (resp.status === 202) {
+
+        if (resp.status === 202) {
         // סטטוס ביניים
         updateStatus(friendlyProgressMessage(data, fileName), false);
 
@@ -347,6 +350,11 @@ function renderSummary(summaryData) {
 
   // שמירה גלובלית לשימוש ב‑PDF
   window.currentSummaryData = summaryData;
+}
+
+// Reverse Hebrew text for RTL rendering in jsPDF
+function reverseHebrewLine(line) {
+    return line.split('').reverse().join('');
 }
 
 // פשוטה ובטוחה: מניעת XSS על טקסטים שמגיעים מהשרת

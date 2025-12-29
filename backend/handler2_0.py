@@ -763,12 +763,6 @@ def agent_handler(event, context):
     }
 
 
-
-
-    
-
-
-
 def _find_internal_id_by_original(bucket: str, original_name: str) -> str | None:
     """
     חיפוש internal_id בקבצי statuses/ או manifests/ לפי original_name.
@@ -863,13 +857,23 @@ def summary_handler(event, context):
         except ClientError:
             pass
 
-        if status_data.get("stage") in ("transcribe_failed", "convert_failed", "preprocess_failed") or "errors" in status_data:
+        # טיפול בכשלונות כולל summarize_failed (למשל עומס ב-Gemini)
+        if status_data.get("stage") in (
+            "transcribe_failed",
+            "convert_failed",
+            "preprocess_failed",
+            "summarize_failed"
+        ) or "errors" in status_data:
             log.error("[SummaryHandler] processing failed: %s", status_data.get("errors"))
+            # אם מדובר בעומס (503) נוסיף הודעה ידידותית
+            error_msg = "Processing failed"
+            if status_data.get("stage") == "summarize_failed":
+                error_msg = "Summarization failed (possibly model overloaded, please try again later)"
             return {
                 "statusCode": 500,
                 "headers": {"Content-Type": "application/json"},
                 "body": json.dumps({
-                    "error": "Processing failed",
+                    "error": error_msg,
                     "details": status_data.get("errors", []),
                     "stage": status_data.get("stage"),
                     "attempts": status_data.get("attempts")
@@ -902,6 +906,3 @@ def summary_handler(event, context):
             "headers": {"Content-Type": "application/json"},
             "body": json.dumps({"error": str(e)})
         }
-
-
-
