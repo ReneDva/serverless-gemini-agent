@@ -16,3 +16,6 @@ backend/__pycache__/
 
 # Secret files
 .env
+
+# personal notes
+notes.txt
