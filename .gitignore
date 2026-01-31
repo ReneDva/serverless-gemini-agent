@@ -4,6 +4,7 @@
 layer/
 
 .idea/
+.vscode/
 
 uploads/
 frontend/node_modules/
