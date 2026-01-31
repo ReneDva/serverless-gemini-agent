@@ -10,7 +10,7 @@ frontend/node_modules/
 frontend/.idea/
 frontend/upload.js.bak
 backend/__pycache__/
-       
+__init__.py
 # Ignore all dependencies packages inside venv
 .venv/
 
