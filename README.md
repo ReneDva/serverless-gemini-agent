@@ -1,10 +1,8 @@
 # 🤖 Serverless Gemini Agent
 
-![AWS](https://img.shields.io/badge/AWS-%23FF9900.svg?style=for-the-badge&logo=amazon-aws&logoColor=white)  
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)  
-![Gemini](https://img.shields.io/badge/Google%20Gemini-8E75B2?style=for-the-badge&logo=googlebard&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-%23FF9900.svg?style=for-the-badge&logo=amazon-aws&logoColor=white)  ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)  ![Gemini](https://img.shields.io/badge/Google%20Gemini-8E75B2?style=for-the-badge&logo=googlebard&logoColor=white)
 
-**A serverless prototype using AWS Lambda and Google Gemini to analyze and summarize audio content.**
+**A serverless service using AWS Lambda and Google Gemini to analyze and summarize audio content.**
 
 ---
 
@@ -16,8 +14,6 @@ This repository demonstrates a **serverless, event-driven pipeline** for audio a
 - **Parallel Processing:** Each upload triggers a Lambda that starts **Amazon Transcribe** jobs. Multiple audio files can be processed **concurrently**.  
 - **Summarization:** Once transcription is complete, results are merged and sent to **Google Gemini** for structured summaries.  
 - **Storage & Access:** Summaries are written back to S3 and exposed via an HTTP API for retrieval.
-
-**Status:** FUNCTIONING prototype. Core flows (presign, S3 triggers, summary API) are implemented. Full end-to-end integration (Transcribe → Gemini) and robust error handling are in progress.
 
 ---
 
@@ -204,4 +200,5 @@ python save_to_secrets.py --secrets-file secrets_gemini.json --secret-name my/ge
     ```bash
     python delete_all_resources.py --profile admin-manager --region us-east-1
     ```
+
 
